@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="VoicesIntegration.Api/VoicesIntegration.Api.csproj" />
+    <Project Path="VoicesIntegration.Application/VoicesIntegration.Application.csproj" />
+    <Project Path="VoicesIntegration.Domain/VoicesIntegration.Domain.csproj" />
+    <Project Path="VoicesIntegration.Infrastructure/VoicesIntegration.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="VoicesIntegration.Tests/VoicesIntegration.Tests.csproj" />
+  </Folder>
+</Solution>
