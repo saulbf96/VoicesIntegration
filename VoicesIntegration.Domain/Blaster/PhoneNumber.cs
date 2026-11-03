@@ -34,4 +34,6 @@ public sealed record PhoneNumber
 
     // Por seguridad, si se imprime por accidente (logs) sale enmascarado.
     public override string ToString() => Masked;
+
+
 }

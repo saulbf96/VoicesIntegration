@@ -1,41 +1,64 @@
+using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.RateLimiting;
+using VoicesIntegration.Api.Endpoints;
+using VoicesIntegration.Api.Errors;
+using VoicesIntegration.Api.Security;
+using VoicesIntegration.Application;
+using VoicesIntegration.Infrastructure;
+
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
+// ---------- Servicios ----------
+builder.Services.AddOptions<SecurityOptions>()
+    .Bind(builder.Configuration.GetSection(SecurityOptions.SectionName))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+
+builder.Services.AddApplication();
+builder.Services.AddInfrastructure(builder.Configuration);
+
+builder.Services.AddProblemDetails();
+builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddOpenApi();
+
+// Límite de peticiones al webhook: protege la BD si alguien lo bombardea.
+// Debe ser MAYOR que el volumen real de Blaster (en ISB se vieron miles por minuto);
+// si se queda corto, Voices recibe 429 y esos resultados se pueden perder.
+var webhookPermitsPerMinute = builder.Configuration.GetValue("Webhook:PermitsPerMinute", 30000);
+
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddFixedWindowLimiter(WebhookEndpoints.RateLimitPolicy, limiter =>
+    {
+        limiter.PermitLimit = webhookPermitsPerMinute;
+        limiter.Window = TimeSpan.FromMinutes(1);
+        limiter.QueueLimit = 0;
+    });
+});
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
+// ---------- Pipeline (el orden importa) ----------
+app.UseExceptionHandler();
+
 if (app.Environment.IsDevelopment())
 {
-    app.MapOpenApi();
+    app.MapOpenApi();   // /openapi/v1.json solo en desarrollo
+}
+else
+{
+    app.UseHsts();      // obliga HTTPS en el navegador
 }
 
 app.UseHttpsRedirection();
+app.UseRateLimiter();
 
-var summaries = new[]
-{
-    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-};
-
-app.MapGet("/weatherforecast", () =>
-{
-    var forecast = Enumerable.Range(1, 5).Select(index =>
-        new WeatherForecast
-        (
-            DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-            Random.Shared.Next(-20, 55),
-            summaries[Random.Shared.Next(summaries.Length)]
-        ))
-        .ToArray();
-    return forecast;
-})
-.WithName("GetWeatherForecast");
+app.MapHealthChecks("/health");
+app.MapWebhookEndpoints();
+app.MapBlasterEndpoints();
 
 app.Run();
 
-internal record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
-{
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
-}
+// Permite crear pruebas de integración con WebApplicationFactory<Program>.
+public partial class Program;
