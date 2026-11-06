@@ -5,6 +5,7 @@ namespace VoicesIntegration.Tests.Domain;
 
 public class CallResultTests
 {
+
     private static readonly DateTimeOffset Now = new(2026, 11, 3, 18, 0, 0, TimeSpan.Zero);
 
     [Fact]
@@ -18,6 +19,8 @@ public class CallResultTests
         Assert.Equal(200, result.SipCode);
         Assert.Equal(35, result.DurationSeconds);
     }
+
+    
 
     [Theory]
     [InlineData(null)]

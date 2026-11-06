@@ -60,5 +60,9 @@ public static class SecurityEndpointExtensions
     public static TBuilder RequireWebhookSecret<TBuilder>(this TBuilder builder) where TBuilder : IEndpointConventionBuilder
         => builder.AddEndpointFilter(new SecretHeaderFilter(WebhookSecretHeader, o => o.WebhookSecret));
 
+    /// <summary>Red interna (Security:InternalNetworks) entra sin llave; de fuera exige X-Api-Key.</summary>
+    public static TBuilder RequireInternalNetworkOrApiKey<TBuilder>(this TBuilder builder) where TBuilder : IEndpointConventionBuilder
+        => builder.AddEndpointFilter(new InternalNetworkFilter(new SecretHeaderFilter(ApiKeyHeader, o => o.InternalApiKey)));
+
 
 }

@@ -9,5 +9,6 @@ public enum CallStatus
 {
     Sent = 1,       // SENT: la llamada se entregó
     ToRedial = 2,   // TO_REDIAL: se reintentará
-    Failed = 3      // FAILED: falló definitivamente
+    Failed = 3,     // FAILED: falló definitivamente
+    Other = 4       // otro estado que manda Voices (ej. QUEUED_PROVIDER): se guarda el texto tal cual, NO se rechaza
 }

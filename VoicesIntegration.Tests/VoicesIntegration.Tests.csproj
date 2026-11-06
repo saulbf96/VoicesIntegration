@@ -17,6 +17,7 @@
   <ItemGroup>
     <ProjectReference Include="..\VoicesIntegration.Application\VoicesIntegration.Application.csproj" />
     <ProjectReference Include="..\VoicesIntegration.Domain\VoicesIntegration.Domain.csproj" />
+    <ProjectReference Include="..\VoicesIntegration.Infrastructure\VoicesIntegration.Infrastructure.csproj" />
   </ItemGroup>
 
   <ItemGroup>

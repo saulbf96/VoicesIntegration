@@ -13,17 +13,19 @@ public enum RegisterCallResultOutcome
 }
 
 /// <summary>
-/// Caso de uso: recibir el webhook de Blaster y guardarlo.
+/// Caso de uso: guardar en BD un aviso del webhook de Blaster.
 /// Es idempotente: si Voices reenvía el mismo JSON, no se duplica.
+/// Lo llama el procesador de la bandeja (no el endpoint directamente).
 /// </summary>
 public sealed class RegisterCallResultHandler(
     IBlasterCallRepository repository,
-    TimeProvider timeProvider,
     ILogger<RegisterCallResultHandler> logger)
 {
+    /// <param name="receivedAtUtc">Momento en que NOSOTROS recibimos el aviso (no cuando se procesa).</param>
     public async Task<RegisterCallResultOutcome> HandleAsync(
         CallResultPayload payload,
         string rawPayload,
+        DateTimeOffset receivedAtUtc,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(payload);
@@ -33,7 +35,7 @@ public sealed class RegisterCallResultHandler(
             payload.EffectiveMessageId,
             BlasterValueParser.ParseStatus(payload.Status),
             BlasterValueParser.ParseCallType(payload.CallType),
-            timeProvider.GetUtcNow(),
+            receivedAtUtc,
             payload.SipCode,
             payload.SipDescription,
             payload.DurationMinutes,
@@ -41,26 +43,20 @@ public sealed class RegisterCallResultHandler(
             payload.Operator,
             payload.IsMobile,
             payload.PhoneNumber,
-            payload.OutboundRoute);
+            payload.OutboundRoute,
+            statusText: payload.Status);
 
         // Huella del JSON: el webhook no trae id de evento, así que el mismo
         // contenido exacto = el mismo evento reenviado.
         var payloadHash = SHA256.HashData(Encoding.UTF8.GetBytes(rawPayload));
 
-        // CancellationToken.None A PROPÓSITO: si Voices corta la conexión (timeout de su lado),
-        // el aviso YA lo recibimos y no hay API para recuperarlo después → hay que terminar de
-        // guardarlo. El SP tiene su propio timeout de comando, así que no se queda colgado.
-        var isNew = await repository.RegisterCallResultAsync(result, rawPayload, payloadHash, CancellationToken.None);
+        var isNew = await repository.RegisterCallResultAsync(result, rawPayload, payloadHash, cancellationToken);
 
-        if (isNew)
-        {
-            logger.LogInformation(
-                "Webhook Blaster registrado: {MessageId} {Status} {CallType} SIP {SipCode}",
-                result.MessageId, result.Status, result.CallType, result.SipCode);
-            return RegisterCallResultOutcome.Registered;
-        }
+        // Debug (no Information): con cientos de miles de avisos al día, una línea por aviso
+        // llenaría el disco. El procesador escribe un resumen por lote.
+        logger.LogDebug("Aviso {MessageId} {Status} {CallType} SIP {SipCode} → {Outcome}",
+            result.MessageId, result.Status, result.CallType, result.SipCode, isNew ? "nuevo" : "duplicado");
 
-        logger.LogInformation("Webhook Blaster duplicado ignorado: {MessageId}", result.MessageId);
-        return RegisterCallResultOutcome.Duplicate;
+        return isNew ? RegisterCallResultOutcome.Registered : RegisterCallResultOutcome.Duplicate;
     }
 }

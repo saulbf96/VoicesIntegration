@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Http.HttpResults;
 using VoicesIntegration.Api.Security;
 using VoicesIntegration.Application.Abstractions.Blaster;
+using VoicesIntegration.Application.Abstractions.Inbox;
 using VoicesIntegration.Application.Features.Calls.GetCall;
 using VoicesIntegration.Application.Features.Calls.GetOutboundRoutes;
 
@@ -20,6 +21,9 @@ public static class BlasterEndpoints
 
         // Consulta en NUESTRA BD lo que llegó por webhook.
         group.MapGet("/calls/{messageId}", GetCallAsync).WithName("GetCall");
+
+        // Estado de la bandeja: cuántos avisos esperan pasar a la BD y cuántos se rechazaron.
+        group.MapGet("/inbox", (IWebhookInbox inbox) => TypedResults.Ok(inbox.GetStatus())).WithName("GetInboxStatus");
 
         return app;
     }

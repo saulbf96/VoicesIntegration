@@ -13,8 +13,11 @@ namespace VoicesIntegration.Infrastructure.Persistence;
 /// </summary>
 internal sealed class BlasterCallRepository(ISqlConnectionFactory connectionFactory) : IBlasterCallRepository
 {
-    private const string RegisterEventProcedure = "blaster.usp_CallEvent_Register";
-    private const string GetByMessageIdProcedure = "blaster.usp_Call_GetByMessageId";
+    private const string RegisterEventProcedure = "dbo.USP_GUARDAR_LLAMADA_VOICES";
+    private const string GetByMessageIdProcedure = "dbo.USP_CONSULTAR_LLAMADA_VOICES";
+
+    // Si la BD no responde en 30 s, se corta y el aviso se reintenta desde la bandeja.
+    private const int CommandTimeoutSeconds = 30;
 
     public async Task<bool> RegisterCallResultAsync(
         CallResult result,
@@ -23,17 +26,14 @@ internal sealed class BlasterCallRepository(ISqlConnectionFactory connectionFact
         CancellationToken cancellationToken)
     {
         var parameters = new DynamicParameters();
-        parameters.Add("@MessageId", result.MessageId, DbType.AnsiString, size: CallResult.MaxMessageIdLength);
-        parameters.Add("@StatusId", (byte)result.Status, DbType.Byte);
-        parameters.Add("@CallTypeId", (byte)result.CallType, DbType.Byte);
+        parameters.Add("@Identifier", result.MessageId, DbType.AnsiString, size: CallResult.MaxMessageIdLength);
+        parameters.Add("@TipoLlamada", result.CallType == CallType.Transfer ? "TRANSFER" : "INITIAL", DbType.AnsiString, size: 10);
+        parameters.Add("@Status", result.StatusText, DbType.AnsiString, size: 20);   // tal cual lo mandó Voices
         parameters.Add("@SipCode", result.SipCode, DbType.Int32);
         parameters.Add("@SipDescription", result.SipDescription, DbType.String, size: CallResult.MaxSipDescriptionLength);
         parameters.Add("@DurationMinutes", result.DurationMinutes, DbType.Int32);
         parameters.Add("@DurationSeconds", result.DurationSeconds, DbType.Int32);
-        parameters.Add("@Operator", result.Operator, DbType.AnsiString, size: CallResult.MaxShortTextLength);
-        parameters.Add("@IsMobile", result.IsMobile, DbType.Boolean);
-        parameters.Add("@PhoneNumber", result.PhoneNumber, DbType.AnsiString, size: CallResult.MaxPhoneLength);
-        parameters.Add("@OutboundRoute", result.OutboundRoute, DbType.AnsiString, size: CallResult.MaxShortTextLength);
+        // Teléfono, operador, ruta y demás columnas el SP los lee del JSON del aviso (@RawPayload, que NO se guarda).
         parameters.Add("@PayloadHash", payloadHash, DbType.Binary, size: 32);
         parameters.Add("@RawPayload", rawPayload, DbType.String, size: -1);
         parameters.Add("@ReceivedAtUtc", result.ReceivedAtUtc.UtcDateTime, DbType.DateTime2);
@@ -43,25 +43,30 @@ internal sealed class BlasterCallRepository(ISqlConnectionFactory connectionFact
         await connection.ExecuteAsync(new CommandDefinition(
             RegisterEventProcedure, parameters,
             commandType: CommandType.StoredProcedure,
+            commandTimeout: CommandTimeoutSeconds,
             cancellationToken: cancellationToken));
 
         return !parameters.Get<bool>("@IsDuplicate");
     }
 
+
+
     public async Task<CallDetails?> GetByMessageIdAsync(string messageId, CancellationToken cancellationToken)
     {
         var parameters = new DynamicParameters();
-        parameters.Add("@MessageId", messageId, DbType.AnsiString, size: CallResult.MaxMessageIdLength);
+        parameters.Add("@Identifier", messageId, DbType.AnsiString, size: CallResult.MaxMessageIdLength);
 
         await using var connection = connectionFactory.Create();
         await using var grid = await connection.QueryMultipleAsync(new CommandDefinition(
             GetByMessageIdProcedure, parameters,
             commandType: CommandType.StoredProcedure,
+            commandTimeout: CommandTimeoutSeconds,
             cancellationToken: cancellationToken));
 
         var call = await grid.ReadSingleOrDefaultAsync<CallDetails>();
         if (call is null)
             return null;
+
 
         var events = (await grid.ReadAsync<CallEventItem>()).ToList();
         return call with { Events = events };

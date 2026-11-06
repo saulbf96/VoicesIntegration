@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Recuperar Voices</title>
+<style>
+  :root { --bg:#f5f7fa; --card:#fff; --txt:#1f2933; --muted:#616e7c; --line:#e4e7eb; --pri:#2563eb; --ok:#15803d; --warn:#b45309; --err:#b91c1c; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: Segoe UI, Roboto, Arial, sans-serif; background:var(--bg); color:var(--txt); }
+  header { background:#111827; color:#fff; padding:14px 24px; }
+  header h1 { margin:0; font-size:20px; font-weight:600; }
+  header p { margin:4px 0 0; color:#9ca3af; font-size:13px; }
+  main { max-width:1080px; margin:20px auto; padding:0 16px; display:grid; gap:16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:18px 20px; }
+  .card h2 { margin:0 0 12px; font-size:16px; }
+  .row { display:flex; gap:12px; flex-wrap:wrap; align-items:end; }
+  label { display:flex; flex-direction:column; gap:4px; font-size:13px; color:var(--muted); }
+  input[type=text], input[type=password], input[type=date] { padding:8px 10px; border:1px solid var(--line); border-radius:6px; font-size:14px; min-width:220px; }
+  input[type=file] { font-size:14px; }
+  button { padding:9px 16px; border:0; border-radius:6px; background:var(--pri); color:#fff; font-size:14px; cursor:pointer; }
+  button.sec { background:#e5e7eb; color:var(--txt); }
+  button.ok { background:var(--ok); }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  .bar { height:10px; background:#e5e7eb; border-radius:5px; overflow:hidden; margin-top:10px; }
+  .bar > div { height:100%; width:0; background:var(--pri); transition:width .2s; }
+  .muted { color:var(--muted); font-size:13px; }
+  .grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap:10px; margin-top:12px; }
+  .kpi { border:1px solid var(--line); border-radius:8px; padding:10px 12px; }
+  .kpi b { display:block; font-size:22px; margin-top:2px; }
+  .kpi.hl { border-color:var(--pri); background:#eff6ff; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:600; }
+  .tag { padding:2px 8px; border-radius:10px; font-size:12px; font-weight:600; background:#e5e7eb; }
+  .tag.TERMINADO { background:#dcfce7; color:var(--ok); }
+  .tag.REVISADO { background:#dbeafe; color:var(--pri); }
+  .tag.ERROR { background:#fee2e2; color:var(--err); }
+  .tag.CANCELADO { background:#f3f4f6; color:var(--muted); }
+  .tag.LEYENDO, .tag.INSERTANDO, .tag.POR_INSERTAR, .tag.SUBIDO { background:#fef3c7; color:var(--warn); }
+  .msg { margin-top:10px; font-size:14px; }
+  .msg.err { color:var(--err); } .msg.ok { color:var(--ok); }
+  .hidden { display:none; }
+  /* Círculo de carga al centro mientras el servidor trabaja */
+  #overlay { position:fixed; inset:0; background:rgba(17,24,39,.55); display:flex; align-items:center; justify-content:center; z-index:50; }
+  #overlay.hidden { display:none; }
+  .ovbox { background:#fff; border-radius:12px; padding:28px 36px; text-align:center; min-width:320px; box-shadow:0 10px 30px rgba(0,0,0,.25); }
+  .spinner { width:56px; height:56px; border:6px solid #dbeafe; border-top-color:var(--pri); border-radius:50%; margin:0 auto 14px; animation:gira 0.9s linear infinite; }
+  @keyframes gira { to { transform:rotate(360deg); } }
+  .ovtitulo { font-size:18px; font-weight:600; }
+  .ovdet { color:var(--muted); font-size:14px; margin-top:6px; }
+  .ovnota { color:var(--muted); font-size:12px; margin-top:10px; }
+  #modal { position:fixed; inset:0; background:rgba(17,24,39,.55); display:flex; align-items:center; justify-content:center; z-index:60; }
+  #modal.hidden { display:none; }
+  #modal .ovbox { max-width:440px; }
+  .mdicono { font-size:40px; line-height:1; margin-bottom:10px; }
+  .mdicono:empty { display:none; }
+  .mdbotones { display:flex; gap:10px; justify-content:center; margin-top:18px; flex-wrap:wrap; }
+  .estado-mal { color:var(--err); font-weight:600; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Recuperar llamadas y mensajes de Voices</h1>
+  <p>Sube el reporte de Voices del día que falló. Solo se agrega lo que falta.</p>
+</header>
+     
+
+<main>
+  <!-- Acceso: solo aparece si se abre desde FUERA de la red interna (pide la API Key) -->
+  <section class="card hidden" id="cardAcceso">
+    <h2>Acceso</h2>
+    <div class="row">
+      <label id="keyBox" class="hidden">API Key (solo fuera de la red interna) <input id="apiKey" type="password" autocomplete="off" placeholder="X-Api-Key"></label>
+      <span class="muted" id="accesoInfo">Desde la red de la empresa no hace falta llave.</span>
+    </div>
+  </section>
+
+  <!-- 0) Huecos -->
+  <section class="card">
+    <h2>¿Faltan llamadas?</h2>
+    <div class="row">
+      <label>Día <input id="fechaHuecos" type="date"></label>
+      <button class="sec" id="btnHuecos">Revisar día</button>
+    </div>
+    <div id="huecos" class="msg muted"></div>
+  </section>
+
+  <!-- 1) Subir -->
+  <section class="card">
+    <h2>Subir reporte</h2>
+    <p class="muted">Reporte de campañas de Voices del día completo (.csv o .zip).</p>
+    <div class="row">
+      <label>Tipo
+        <select id="canal">
+          <option value="BLASTER">Llamadas (Blaster)</option>
+          <option value="SMS">Mensajes (SMS)</option>
+        </select>
+      </label>
+      <input id="archivo" type="file" accept=".csv,.zip">
+      <button id="btnSubir">Subir y revisar</button>
+    </div>
+    <div class="bar"><div id="barra"></div></div>
+    <div id="msgSubida" class="msg muted"></div>
+  </section>
+
+  <!-- 2) Resultado -->
+  <section class="card hidden" id="cardResultado">
+    <h2>Resultado <span id="estadoTag" class="tag"></span></h2>
+    <div class="muted" id="archivoInfo"></div>
+    <div class="grid">
+      <div class="kpi">Registros en el archivo<b id="kLeidas">–</b></div>
+      <div class="kpi">Ya estaban guardadas<b id="kExistian">–</b></div>
+      <div class="kpi hl">Faltan (se agregarán)<b id="kFaltan">–</b></div>
+      <div class="kpi"><span id="lSinMarcar">Voices no las marcó</span><b id="kSinMarcar">–</b><span class="muted">(no se agregan)</span></div>
+      <div class="kpi">Fechas del archivo<b id="kRango" style="font-size:14px">–</b></div>
+    </div>
+    <div class="row" style="margin-top:14px">
+      <button class="ok" id="btnInsertar" disabled>Insertar faltantes</button>
+      <button class="sec" id="btnCancelar" disabled>Cancelar</button>
+    </div>
+    <div id="msgResultado" class="msg"></div>
+  </section>
+
+  <!-- Historial -->
+  <section class="card">
+    <h2>Historial <button class="sec" id="btnHistorial" style="float:right;padding:5px 12px">Actualizar</button></h2>
+    <table>
+      <thead><tr><th>Subido</th><th>Archivo</th><th>Estado</th><th>Leídas</th><th>Faltaban</th><th>Insertadas</th><th>Mensaje</th></tr></thead>
+      <tbody id="historial"><tr><td colspan="7" class="muted">Cargando...</td></tr></tbody>
+    </table>
+  </section>
+</main>
+
+<div id="overlay" class="hidden" role="status" aria-live="polite">
+  <div class="ovbox">
+    <div class="spinner"></div>
+    <div class="ovtitulo" id="ovTitulo">Leyendo...</div>
+    <div class="ovdet" id="ovDetalle"></div>
+    <div class="ovnota">Puedes dejar esta página abierta; se actualiza sola.</div>
+  </div>
+</div>
+
+<div id="modal" class="hidden" role="dialog" aria-modal="true">
+  <div class="ovbox">
+    <div class="mdicono" id="mdIcono"></div>
+    <div class="ovtitulo" id="mdTitulo"></div>
+    <div class="ovdet" id="mdTexto"></div>
+    <div class="mdbotones" id="mdBotones"></div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const n = v => (v === null || v === undefined) ? '–' : Number(v).toLocaleString('es-MX');
+  const f = v => v ? new Date(v).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' }) : '–';
+  const store = { get: k => { try { return sessionStorage.getItem(k) || ''; } catch { return ''; } },
+                  set: (k, v) => { try { sessionStorage.setItem(k, v); } catch {} } };
+  let jobId = null, timer = null, finAvisado = false, canalActual = 'BLASTER';
+  const palabra = () => canalActual === 'SMS' ? 'mensajes' : 'llamadas';
+
+  $('apiKey').value = store.get('apiKey');
+  $('apiKey').addEventListener('change', e => store.set('apiKey', e.target.value.trim()));
+  const ayer = new Date(Date.now() - 864e5); $('fechaHuecos').value = ayer.toISOString().slice(0, 10);
+
+  const key = () => $('apiKey').value.trim();
+  async function api(path, opts = {}) {
+    const h = { ...(opts.headers || {}) }; if (key()) h['X-Api-Key'] = key();
+    const r = await fetch(path, { ...opts, headers: h });
+    if (r.status === 401) { pedirLlave(); throw new Error('Estás fuera de la red interna: escribe la API Key arriba.'); }
+    const body = r.headers.get('content-type')?.includes('json') ? await r.json() : null;
+    if (!r.ok) throw new Error(body?.detail || body?.title || ('Error ' + r.status));
+    return body;
+    }
+
+  function pedirLlave() { $('cardAcceso').classList.remove('hidden'); $('keyBox').classList.remove('hidden'); $('accesoInfo').textContent = 'Fuera de la red interna se necesita la API Key.'; }
+  if (key()) pedirLlave();
+  const ESTADOS = {
+    SUBIDO: 'Archivo recibido, preparando...', LEYENDO: 'Leyendo el archivo...', POR_INSERTAR: 'En cola para insertar...',
+    INSERTANDO: 'Insertando lo que falta...'
+  };
+  function overlay(titulo, detalle) {
+    if (!titulo) { $('overlay').classList.add('hidden'); return; }
+    $('ovTitulo').textContent = titulo; $('ovDetalle').textContent = detalle || '';
+    $('overlay').classList.remove('hidden');
+  }
+  // Aviso dentro de la página (en vez de las ventanitas del navegador). Devuelve el valor del botón elegido.
+  function aviso(icono, titulo, texto, botones) {
+    return new Promise(resolve => {
+      $('mdIcono').textContent = icono; $('mdTitulo').textContent = titulo; $('mdTexto').textContent = texto;
+      const cont = $('mdBotones'); cont.replaceChildren();
+      botones.forEach(b => {
+        const btn = document.createElement('button');
+        btn.textContent = b.texto; if (b.clase) btn.className = b.clase;
+        btn.onclick = () => { $('modal').classList.add('hidden'); resolve(b.valor); };
+        cont.appendChild(btn);
+      });
+      $('modal').classList.remove('hidden');
+      cont.firstChild?.focus();
+    });
+  }
+
+  // Deja la pantalla lista para subir otro archivo (sin recargar).
+  function reiniciar() {
+    clearTimeout(timer); jobId = null; finAvisado = false;
+    $('archivo').value = ''; $('barra').style.width = '0';
+    msg($('msgSubida'), '', 'muted'); msg($('msgResultado'), '', '');
+    $('cardResultado').classList.add('hidden');
+    $('btnSubir').disabled = false;
+    $('archivo').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  function msg(el, text, cls = '') { el.textContent = text; el.className = 'msg ' + cls; }
+
+  // ---- 0) Huecos del día ----
+  $('btnHuecos').onclick = async () => {
+    const out = $('huecos');
+    try {
+      const r = await api('/api/reportes/huecos?fecha=' + $('fechaHuecos').value);
+      // Solo cuentan los cortes DENTRO del horario de campañas (el mismo de los correos); la madrugada no importa.
+      const [hi, mi] = (r.horarioInicio || '07:00').split(':').map(Number), [hf, mf] = (r.horarioFin || '22:00').split(':').map(Number);
+      const cortes = r.ventanasSinServicio.map(v => {
+        const d = new Date(v.desde), h = new Date(v.hasta);
+        const ini = new Date(d); ini.setHours(hi, mi, 0, 0);
+        const fin = new Date(d); fin.setHours(hf, mf, 0, 0);
+        const a = d < ini ? ini : d, b = h > fin ? fin : h;
+        return { a, b, min: Math.round((b - a) / 60000) };
+      }).filter(c => c.min >= 1);
+      out.replaceChildren();
+      const hora = x => x.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', hour12: false });
+      if (!cortes.length) {
+        msg(out, 'No faltan llamadas ese día.', 'ok');
+        return;
+      }
+      const total = cortes.reduce((s, c) => s + c.min, 0);
+      const p = document.createElement('div');
+      p.className = 'estado-mal';
+      p.textContent = `Faltan llamadas: la API estuvo apagada ${total} min.`;
+      const ul = document.createElement('ul');
+      cortes.forEach(c => { const li = document.createElement('li'); li.textContent = `${hora(c.a)} a ${hora(c.b)} (${c.min} min)`; ul.appendChild(li); });
+      const q = document.createElement('div');
+      q.textContent = `Sube abajo el reporte de Voices del ${$('fechaHuecos').value.split('-').reverse().join('/')}.`;
+      out.className = 'msg'; out.append(p, ul, q);
+    } catch (e) { msg(out, e.message, 'err'); }
+  };
+
+  // ---- 1) Subir (con barra de progreso) ----
+  $('btnSubir').onclick = () => {
+    const file = $('archivo').files[0], m = $('msgSubida');
+    if (!file) return msg(m, 'Selecciona el archivo .csv o .zip.', 'err');
+    if (!/\.(csv|zip)$/i.test(file.name)) return msg(m, 'Solo se aceptan .csv o .zip.', 'err');
+
+
+    
+
+    const fd = new FormData();
+    fd.append('canal', $('canal').value);
+    fd.append('archivo', file, file.name);
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/recuperacion/');
+    if (key()) xhr.setRequestHeader('X-Api-Key', key());
+    xhr.upload.onprogress = e => {
+      if (!e.lengthComputable) return;
+      const pct = Math.round(e.loaded * 100 / e.total);
+      $('barra').style.width = pct + '%';
+      msg(m, `Subiendo... ${pct}% (${(e.loaded / 1048576).toFixed(0)} de ${(e.total / 1048576).toFixed(0)} MB)`, 'muted');
+      overlay(`Subiendo archivo... ${pct}%`, `${(e.loaded / 1048576).toFixed(0)} de ${(e.total / 1048576).toFixed(0)} MB`);
+    };
+    xhr.onload = () => {
+      if (xhr.status === 202) {
+        jobId = JSON.parse(xhr.responseText).jobId; finAvisado = false;
+        msg(m, 'Archivo recibido. Revisando en el servidor (puede tardar unos minutos)...', 'ok');
+        $('cardResultado').classList.remove('hidden');
+        seguir();
+      } else {
+        overlay(null);
+        let d = 'Error ' + xhr.status; try { const b = JSON.parse(xhr.responseText); d = b.detail || b.title || d; } catch {}
+        if (xhr.status === 401) pedirLlave();
+        msg(m, xhr.status === 401 ? 'Estás fuera de la red interna: escribe la API Key arriba.' : d, 'err');
+      }
+      $('btnSubir').disabled = false;
+    };
+    xhr.onerror = () => { overlay(null); msg(m, 'Se perdió la conexión al subir. Intenta de nuevo (mejor con .zip).', 'err'); $('btnSubir').disabled = false; };
+    $('btnSubir').disabled = true; $('barra').style.width = '0'; overlay('Subiendo archivo... 0%', file.name);
+    xhr.send(fd);
+  };
+
+  // ---- 2) Seguimiento ----
+  function pintar(j) {
+    if (ESTADOS[j.estado]) overlay(ESTADOS[j.estado], j.estado === 'LEYENDO' || j.estado === 'SUBIDO'
+        ? `${n(j.filasLeidas)} registros leídos`
+        : (j.mensaje || '') + (j.insertadas ? ` · ${n(j.insertadas)} insertadas` : ''));
+    else overlay(null);
+    $('estadoTag').textContent = j.estado; $('estadoTag').className = 'tag ' + j.estado;
+    $('archivoInfo').textContent = `${j.archivo} · ${(j.tamanoBytes / 1048576).toFixed(0)} MB · subido ${f(j.fechaSubida)}`;
+    $('kLeidas').textContent = n(j.filasLeidas);
+    $('kExistian').textContent = n(j.yaExistian);
+    $('kFaltan').textContent = n(j.faltantes);
+    $('kSinMarcar').textContent = n(j.filasSinMarcar);
+    canalActual = j.canal || 'BLASTER';
+    $('lSinMarcar').textContent = canalActual === 'SMS' ? 'Sin estado' : 'Voices no las marcó';
+    $('kRango').textContent = j.desde ? `${f(j.desde)} → ${f(j.hasta)}` : '–';
+    // SMS: aunque no falte ninguno, se puede "insertar" para completar número y texto de los que llegaron por webhook.
+    const puedeInsertar = (j.estado === 'REVISADO' || (j.estado === 'ERROR' && j.faltantes !== null)) && (j.faltantes > 0 || canalActual === 'SMS');
+    $('btnInsertar').disabled = !puedeInsertar;
+    $('btnInsertar').textContent = j.faltantes ? `Insertar ${n(j.faltantes)} faltantes`
+      : (canalActual === 'SMS' ? 'Completar número y texto' : 'Insertar faltantes');
+    $('btnCancelar').disabled = !['REVISADO', 'ERROR', 'LEYENDO', 'SUBIDO'].includes(j.estado);
+    const cls = j.estado === 'ERROR' ? 'err' : j.estado === 'TERMINADO' ? 'ok' : 'muted';
+    let t = j.mensaje || '';
+    if (j.estado === 'REVISADO' && j.faltantes === 0) t = `No falta nada: ${palabra()} del archivo ya estaban guardados.`;
+    if (j.estado === 'TERMINADO') t = `${n(j.insertadas)} llamadas insertadas · a_num completado en ${n(j.aNumActualizados)}.`;
+    msg($('msgResultado'), t, cls);
+  }
+  async function seguir() {
+    clearTimeout(timer);
+    if (!jobId) return;
+    try {
+      const j = await api('/api/recuperacion/' + jobId);
+      pintar(j);
+      if (['SUBIDO', 'LEYENDO', 'POR_INSERTAR', 'INSERTANDO'].includes(j.estado)) timer = setTimeout(seguir, 2000);
+      else { historial(); avisarFin(j); }
+    } catch (e) { overlay(null); msg($('msgResultado'), e.message, 'err'); timer = setTimeout(seguir, 5000); }
+  }
+  // Aviso al terminar (una sola vez por archivo), con botón para subir otro.
+  async function avisarFin(j) {
+    if (finAvisado) return;
+    let a = null;
+    if (j.estado === 'TERMINADO') a = ['', `${n(j.insertadas)} ${palabra()} agregados`,
+        canalActual === 'SMS' ? `Listo. Además se completó número/texto en ${n(j.aNumActualizados)}.` : 'Listo. Ya quedaron guardadas.'];
+    else if (j.estado === 'REVISADO' && j.faltantes === 0 && canalActual !== 'SMS') a = ['', 'No falta nada', `Todas las ${palabra()} del archivo ya estaban guardadas.`];
+    else if (j.estado === 'CANCELADO') a = ['', 'Cancelado', 'No se guardó nada.'];
+    if (!a) return;
+    finAvisado = true;
+    const v = await aviso(a[0], a[1], a[2], [{ texto: 'Subir otro archivo', valor: 'otro', clase: 'ok' }, { texto: 'Cerrar', valor: 'cerrar', clase: 'sec' }]);
+    if (v === 'otro') reiniciar();
+  }
+
+  $('btnInsertar').onclick = async () => {
+    const v = await aviso('', `¿Agregar ${$('kFaltan').textContent} ${palabra()}?`,
+      canalActual === 'SMS' ? 'Se guardan solo los que faltan y se completa número/texto de los que ya estaban.' : 'Se guardan solo las que faltan. Puede tardar unos minutos.',
+      [{ texto: 'Sí, agregar', valor: true, clase: 'ok' }, { texto: 'No', valor: false, clase: 'sec' }]);
+    if (!v) return;
+    try { $('btnInsertar').disabled = true; await api(`/api/recuperacion/${jobId}/insertar`, { method: 'POST' }); seguir(); }
+    catch (e) { msg($('msgResultado'), e.message, 'err'); }
+  };
+  $('btnCancelar').onclick = async () => {
+    const v = await aviso('', '¿Cancelar este archivo?', 'No se guardará nada.',
+      [{ texto: 'Sí, cancelar', valor: true, clase: 'sec' }, { texto: 'No', valor: false, clase: 'ok' }]);
+    if (!v) return;
+    try { const j = await api(`/api/recuperacion/${jobId}/cancelar`, { method: 'POST' }); pintar(j); historial(); avisarFin(j); }
+    catch (e) { msg($('msgResultado'), e.message, 'err'); }
+  };
+
+    // ---- Historial ----
+
+
+
+  async function historial() {
+    const tb = $('historial');
+    try {
+      const lista = await api('/api/recuperacion/');
+      tb.replaceChildren();
+      if (!lista.length) { const tr = tb.insertRow(); const td = tr.insertCell(); td.colSpan = 7; td.className = 'muted'; td.textContent = 'Todavía no hay recuperaciones.'; return; }
+      lista.forEach(j => {
+        const tr = tb.insertRow();
+        [f(j.fechaSubida), (j.canal === 'SMS' ? 'SMS · ' : 'Llamadas · ') + j.archivo, null, n(j.filasLeidas), n(j.faltantes), n(j.insertadas), j.mensaje || ''].forEach((v, i) => {
+          const td = tr.insertCell();
+          if (i === 2) { const s = document.createElement('span'); s.className = 'tag ' + j.estado; s.textContent = j.estado; td.appendChild(s); }
+          else td.textContent = v;
+        });
+        tr.style.cursor = 'pointer';
+        tr.title = 'Ver detalle';
+        tr.onclick = () => { jobId = j.jobId; finAvisado = true; $('cardResultado').classList.remove('hidden'); seguir(); };
+      });
+    } catch (e) { tb.replaceChildren(); const td = tb.insertRow().insertCell(); td.colSpan = 7; td.className = 'msg err'; td.textContent = e.message; }
+  }
+  $('btnHistorial').onclick = historial;
+  historial();
+})();
+
+</script>
+</body>
+</html>

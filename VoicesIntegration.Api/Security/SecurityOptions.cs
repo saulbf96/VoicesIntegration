@@ -19,4 +19,10 @@ public sealed class SecurityOptions
     /// </summary>
     [Required, MinLength(32)]
     public string WebhookSecret { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Redes desde donde la pantalla /recuperar/ funciona SIN pedir API Key (formato CIDR).
+    /// Por defecto: la misma PC y la red interna 10.80.x.x. Lo que llegue por el túnel o de internet sí la pide.
+    /// </summary>
+    public string[] InternalNetworks { get; init; } = ["127.0.0.0/8", "::1/128", "10.80.0.0/16"];
 }

@@ -28,6 +28,8 @@ internal sealed class BlasterHttpGateway(HttpClient httpClient, ILogger<BlasterH
                 throw new ExternalServiceException(ServiceName, $"Blaster respondió {(int)response.StatusCode} al listar rutas.");
             }
 
+
+
             var routes = await response.Content.ReadFromJsonAsync<List<OutboundRouteResponse>>(cancellationToken) ?? [];
             return routes.Select(r => new OutboundRoute(r.Id ?? string.Empty, r.Name ?? string.Empty, r.Type ?? string.Empty)).ToList();
         }
