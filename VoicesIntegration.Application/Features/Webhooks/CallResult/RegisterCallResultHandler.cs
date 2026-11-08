@@ -28,6 +28,24 @@ public sealed class RegisterCallResultHandler(
         DateTimeOffset receivedAtUtc,
         CancellationToken cancellationToken)
     {
+        var e = Prepare(payload, rawPayload, receivedAtUtc);
+        var isNew = await repository.RegisterCallResultAsync(e.Result, e.RawPayload, e.PayloadHash, cancellationToken);
+        var result = e.Result;
+
+        // Debug (no Information): con cientos de miles de avisos al día, una línea por aviso
+        // llenaría el disco. El procesador escribe un resumen por lote.
+        logger.LogDebug("Aviso {MessageId} {Status} {CallType} SIP {SipCode} → {Outcome}",
+            result.MessageId, result.Status, result.CallType, result.SipCode, isNew ? "nuevo" : "duplicado");
+
+        return isNew ? RegisterCallResultOutcome.Registered : RegisterCallResultOutcome.Duplicate;
+    }
+
+    /// <summary>
+    /// Valida el aviso y calcula su huella, SIN tocar la BD (lo usa también el guardado por lotes).
+    /// Lanza DomainException si el aviso es inválido.
+    /// </summary>
+    public static CallEventToSave Prepare(CallResultPayload payload, string rawPayload, DateTimeOffset receivedAtUtc)
+    {
         ArgumentNullException.ThrowIfNull(payload);
         ArgumentNullException.ThrowIfNull(rawPayload);
 
@@ -49,14 +67,6 @@ public sealed class RegisterCallResultHandler(
         // Huella del JSON: el webhook no trae id de evento, así que el mismo
         // contenido exacto = el mismo evento reenviado.
         var payloadHash = SHA256.HashData(Encoding.UTF8.GetBytes(rawPayload));
-
-        var isNew = await repository.RegisterCallResultAsync(result, rawPayload, payloadHash, cancellationToken);
-
-        // Debug (no Information): con cientos de miles de avisos al día, una línea por aviso
-        // llenaría el disco. El procesador escribe un resumen por lote.
-        logger.LogDebug("Aviso {MessageId} {Status} {CallType} SIP {SipCode} → {Outcome}",
-            result.MessageId, result.Status, result.CallType, result.SipCode, isNew ? "nuevo" : "duplicado");
-
-        return isNew ? RegisterCallResultOutcome.Registered : RegisterCallResultOutcome.Duplicate;
+        return new CallEventToSave(result, rawPayload, payloadHash);
     }
 }

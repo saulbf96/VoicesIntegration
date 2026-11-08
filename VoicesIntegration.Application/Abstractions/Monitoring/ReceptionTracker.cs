@@ -10,6 +10,7 @@ public sealed class ReceptionTracker
     private long _lastTicks;    // UTC
     private long _firstTicks;   // UTC, primer aviso desde que arrancó la API
     private long _count;
+    private long _saved;        // avisos guardados en BD desde que arrancó (para saber si la bandeja avanza)
 
     public void Mark(DateTimeOffset receivedAtUtc)
     {
@@ -22,6 +23,11 @@ public sealed class ReceptionTracker
     public DateTimeOffset? LastUtc => Read(ref _lastTicks);
     public DateTimeOffset? FirstUtc => Read(ref _firstTicks);
     public long Count => Interlocked.Read(ref _count);
+
+    /// <summary>Lo llama la bandeja al guardar un lote en la BD.</summary>
+    public void MarkSaved(int count) { if (count > 0) Interlocked.Add(ref _saved, count); }
+
+    public long SavedTotal => Interlocked.Read(ref _saved);
 
     private static DateTimeOffset? Read(ref long ticks)
     {

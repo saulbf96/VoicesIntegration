@@ -18,15 +18,22 @@ namespace VoicesIntegration.Application.Features.Recovery;
 /// </summary>
 public sealed class RecoveryService(IRecoveryRepository repository, IRecoveryFileReader reader, INotificador notificador, ILogger<RecoveryService> logger)
 {
-    /// <summary>Filas completas por lote (≈ 60 MB en memoria; ~5 lotes a la vez como máximo ≈ 300 MB).</summary>
-    public const int BatchSize = 20_000;
+    /// <summary>
+    /// Filas por lote. Debe quedar MUY debajo de ~5,000: con más filas en una sola operación SQL Server
+    /// bloquea la TABLA COMPLETA (lock escalation) y los webhooks esperan hasta el timeout. Pasó el
+    /// 2026-11-07 con 20,000: de 12:15 a 13:40 la bandeja casi no guardó nada (~7 avisos/min).
+    /// </summary>
+    public const int BatchSize = 2_000;
+
+    /// <summary>Pausa entre lotes para que los webhooks (prioridad) entren a la tabla entre uno y otro.</summary>
+    public static readonly TimeSpan PausaEntreLotes = TimeSpan.FromMilliseconds(50);
 
     /// <summary>
     /// Conexiones mandando lotes a SQL al mismo tiempo. Leer el archivo es ~5 veces más rápido que mandar
     /// filas completas por una sola conexión (medido), así que se mandan 3 en paralelo. Insertar en la tabla
-    /// final sigue siendo de UNO en UNO (así nunca se duplica).
+    /// final sigue siendo de UNO en UNO (así nunca se duplica). Bajó de 3 a 2 para dejar aire a los webhooks.
     /// </summary>
-    public const int BulkWorkers = 3;
+    public const int BulkWorkers = 2;
 
     /// <summary>
     /// Hasta cuántas faltantes se filtran en memoria (≈ 25 bytes c/u como GUID → ~150 MB con 6 millones).
@@ -188,6 +195,7 @@ public sealed class RecoveryService(IRecoveryRepository repository, IRecoveryFil
                 if (only is not null && await repository.BulkInsertFinalAsync(rows, token))
                 {
                     await repository.AddInsertedAsync(jobId, rows.Count, token);
+                    await Task.Delay(PausaEntreLotes, token);
                     continue;
                 }
                 // Camino seguro (chocó con un webhook, o son demasiadas para la lista en memoria): tabla de carga + SP.
@@ -204,7 +212,10 @@ public sealed class RecoveryService(IRecoveryRepository repository, IRecoveryFil
         var insertador = Task.Run(() => Guard(async () =>
         {
             await foreach (var lote in porInsertar.Reader.ReadAllAsync(token))
+            {
                 await repository.InsertBatchAsync(jobId, lote, token);
+                await Task.Delay(PausaEntreLotes, token);
+            }
         }), token);
 
         var todas = new[] { lector, cierre, insertador };

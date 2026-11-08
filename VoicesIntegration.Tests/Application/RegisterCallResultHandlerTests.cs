@@ -119,6 +119,13 @@ public class RegisterCallResultHandlerTests
             return Task.FromResult(true);
         }
 
+        public async Task<IReadOnlyList<bool>> RegisterCallResultsBatchAsync(IReadOnlyList<CallEventToSave> events, CancellationToken cancellationToken)
+        {
+            var r = new List<bool>();
+            foreach (var e in events) r.Add(await RegisterCallResultAsync(e.Result, e.RawPayload, e.PayloadHash, cancellationToken));
+            return r;
+        }
+
         public Task<CallDetails?> GetByMessageIdAsync(string messageId, CancellationToken cancellationToken)
             => Task.FromResult<CallDetails?>(null);
     }

@@ -2,6 +2,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using VoicesIntegration.Application.Abstractions.Inbox;
+using VoicesIntegration.Application.Abstractions.Monitoring;
 using VoicesIntegration.Application.Features.Webhooks.Inbox;
 
 namespace VoicesIntegration.Infrastructure.Inbox;
@@ -15,6 +16,7 @@ namespace VoicesIntegration.Infrastructure.Inbox;
 internal sealed class WebhookInboxWorker(
     IWebhookInbox inbox,
     WebhookInboxProcessor processor,
+    ReceptionTracker tracker,
     IOptions<InboxOptions> options,
     ILogger<WebhookInboxWorker> logger) : BackgroundService
 {
@@ -41,6 +43,7 @@ internal sealed class WebhookInboxWorker(
                 }
 
                 var r = await processor.ProcessPendingAsync(o.BatchSize, o.MaxDegreeOfParallelism, stoppingToken);
+                tracker.MarkSaved(r.Processed + r.Duplicates);   // para la alerta de bandeja atrasada
 
                 if (r.Processed + r.Duplicates + r.Rejected > 0)
                     logger.LogInformation("Lote: {Processed} guardados, {Duplicates} duplicados, {Rejected} rechazados",

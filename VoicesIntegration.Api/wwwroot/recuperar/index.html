@@ -78,7 +78,7 @@
 
   <!-- 0) Huecos -->
   <section class="card">
-    <h2>¿Faltan llamadas?</h2>
+    <h2>¿Faltan llamadas o SMS?</h2>
     <div class="row">
       <label>Día <input id="fechaHuecos" type="date"></label>
       <button class="sec" id="btnHuecos">Revisar día</button>
@@ -218,6 +218,18 @@
     const out = $('huecos');
     try {
       const r = await api('/api/reportes/huecos?fecha=' + $('fechaHuecos').value);
+      // Recuperaciones ya hechas (últimas 30): si ya se subió el reporte de ESE día y canal, el corte ya está cubierto.
+      const recs = await api('/api/recuperacion/').catch(() => []);
+      // Avisos que ya llegaron pero aún NO están en la BD: mientras haya, el reporte está incompleto.
+      const salud = await fetch('/health/detalle').then(x => x.json()).catch(() => null);
+      const pendientes = salud?.revisiones?.inbox?.datos?.pendientes ?? 0;
+      const avisoPend = () => {
+        const d = document.createElement('div');
+        d.className = 'estado-mal';
+        d.textContent = `Hay ${n(pendientes)} avisos recibidos que todavía no se guardan en la BD: este reporte está INCOMPLETO. ` +
+                        'Revísalo cuando la bandeja esté en 0 (puede marcar cortes que no existen o decir que no falta nada cuando sí falta).';
+        return d;
+      };
       // Solo cuentan los cortes DENTRO del horario de campañas (el mismo de los correos); la madrugada no importa.
       const [hi, mi] = (r.horarioInicio || '07:00').split(':').map(Number), [hf, mf] = (r.horarioFin || '22:00').split(':').map(Number);
       const cortes = r.ventanasSinServicio.map(v => {
@@ -225,23 +237,71 @@
         const ini = new Date(d); ini.setHours(hi, mi, 0, 0);
         const fin = new Date(d); fin.setHours(hf, mf, 0, 0);
         const a = d < ini ? ini : d, b = h > fin ? fin : h;
-        return { a, b, min: Math.round((b - a) / 60000) };
+        return { a, b, min: Math.round((b - a) / 60000), bl: v.avisos_Blaster_Cerca || 0, sms: v.avisos_Sms_Cerca || 0, noLlegaron: v.tipo === 'NO_LLEGARON_AVISOS' };
       }).filter(c => c.min >= 1);
       out.replaceChildren();
       const hora = x => x.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', hour12: false });
       if (!cortes.length) {
-        msg(out, 'No faltan llamadas ese día.', 'ok');
+        if (pendientes > 0) { out.className = 'msg'; out.append(avisoPend()); return; }
+        msg(out, 'No falta nada ese día (ni llamadas ni SMS).', 'ok');
         return;
       }
-      const total = cortes.reduce((s, c) => s + c.min, 0);
+      const dia = $('fechaHuecos').value.split('-').reverse().join('/');
+      // Qué se perdió en cada corte: lo que estaba llegando 5 min antes y 5 min después (lo da el reporte de huecos).
+      // Solo cuenta si llegaba un volumen normal (UMBRAL); unos cuantos sueltos no son una campaña corriendo.
+      const UMBRAL = 50;
+      const necesitaLlamadas = c => c.bl >= UMBRAL;
+      const necesitaSms      = c => c.sms >= UMBRAL;
+      // Recuperación terminada (o revisada sin faltantes) de ese canal cuyo archivo trae datos de ese día.
+      const diaLocal = x => { const d = new Date(x); d.setHours(0, 0, 0, 0); return d.getTime(); };
+      const recuperado = (c, canal) => recs.find(j => (j.canal || 'BLASTER') === canal
+          && (j.estado === 'TERMINADO' || (j.estado === 'REVISADO' && j.faltantes === 0))
+          && j.desde && j.hasta && diaLocal(j.desde) <= diaLocal(c.a) && diaLocal(c.a) <= diaLocal(j.hasta));
+      const faltaLlamadas = c => necesitaLlamadas(c) && !recuperado(c, 'BLASTER');
+      const faltaSms      = c => necesitaSms(c) && !recuperado(c, 'SMS');
+      const queFalta = c => {
+        const nb = necesitaLlamadas(c), ns = necesitaSms(c);
+        if (!nb && !ns) return pendientes > 0 ? 'todavía no se puede saber (hay avisos sin guardar)' : 'no falta nada';
+        const partes = [];
+        if (nb) { const j = recuperado(c, 'BLASTER'); partes.push(j ? `llamadas Blaster YA RECUPERADAS (reporte subido ${f(j.fechaSubida)})` : 'faltan llamadas Blaster'); }
+        if (ns) { const j = recuperado(c, 'SMS'); partes.push(j ? `mensajes SMS YA RECUPERADOS (reporte subido ${f(j.fechaSubida)})` : 'faltan mensajes SMS'); }
+        return partes.join(' y ');
+      };
+      const pasos = [];
+      if (cortes.some(faltaLlamadas)) pasos.push('Reporte de LLAMADAS. En "Tipo" elige: Llamadas (Blaster).');
+      if (cortes.some(faltaSms))      pasos.push('Reporte de MENSAJES SMS. En "Tipo" elige: SMS.');
+      const yaTodo = !pasos.length && cortes.some(c => necesitaLlamadas(c) || necesitaSms(c));
+
       const p = document.createElement('div');
-      p.className = 'estado-mal';
-      p.textContent = `Faltan llamadas: la API estuvo apagada ${total} min.`;
+      p.className = pasos.length ? 'estado-mal' : (yaTodo ? 'msg ok' : '');
+      p.textContent = pasos.length
+        ? `Faltan datos del día ${dia}. Hubo cortes en estos horarios:`
+        : yaTodo
+          ? `El ${dia} hubo cortes, pero lo que faltaba YA SE RECUPERÓ. No hay que subir nada más.`
+          : `El ${dia} el sistema estuvo sin servicio en estos horarios, pero no estaba llegando nada. No hay que subir ningún reporte.`;
       const ul = document.createElement('ul');
-      cortes.forEach(c => { const li = document.createElement('li'); li.textContent = `${hora(c.a)} a ${hora(c.b)} (${c.min} min)`; ul.appendChild(li); });
-      const q = document.createElement('div');
-      q.textContent = `Sube abajo el reporte de Voices del ${$('fechaHuecos').value.split('-').reverse().join('/')}.`;
-      out.className = 'msg'; out.append(p, ul, q);
+      cortes.forEach(c => {
+        const li = document.createElement('li'); li.textContent = `${hora(c.a)} a ${hora(c.b)} (${c.min} min${c.noLlegaron ? ', no llegaron avisos' : ', sin registro de la API'}): ${queFalta(c)}`;
+        if (faltaLlamadas(c) || faltaSms(c)) li.className = 'estado-mal';
+        else if (necesitaLlamadas(c) || necesitaSms(c)) li.style.color = 'var(--ok)';
+        ul.appendChild(li);
+      });
+      out.className = 'msg';
+      if (pendientes > 0) out.append(avisoPend());
+      out.append(p, ul);
+
+      if (pasos.length) {
+        const q = document.createElement('div');
+        q.className = 'muted';
+        q.textContent = 'Sube abajo el reporte del día completo. Solo se agrega lo que falta; lo que ya estaba no se duplica.';
+        out.append(q);
+      }
+      if (cortes.some(c => !necesitaLlamadas(c) && !necesitaSms(c))) {
+        const n = document.createElement('div');
+        n.className = 'muted';
+        n.textContent = 'Si sabes que en un horario marcado "no falta nada" sí corrieron campañas, sube el reporte de lo que corrió (llamadas o SMS).';
+        out.append(n);
+      }
     } catch (e) { msg(out, e.message, 'err'); }
   };
 

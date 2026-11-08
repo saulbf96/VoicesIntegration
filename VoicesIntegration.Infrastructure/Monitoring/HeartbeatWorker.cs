@@ -77,7 +77,8 @@ internal sealed class HeartbeatWorker(
         logger.LogWarning("RESUMEN {Day:yyyy-MM-dd}: {Count} horas con cortes. Avisos Blaster {Blaster}, SMS {Sms}. RECUPERAR estos rangos del reporte de Voices:",
             day, malas.Count, blaster, sms);
         foreach (var v in r.VentanasSinServicio)
-            logger.LogWarning("  SIN SERVICIO de {Desde:HH:mm} a {Hasta:HH:mm} ({Minutos} min)", v.Desde, v.Hasta, v.Minutos);
+            logger.LogWarning("  {Tipo} de {Desde:HH:mm} a {Hasta:HH:mm} ({Minutos} min)",
+                v.Tipo == DowntimeWindow.TipoNoLlegaron ? "NO LLEGARON AVISOS" : "SIN SERVICIO", v.Desde, v.Hasta, v.Minutos);
     }
 
     private DateOnly TodayMexico() => DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(time.GetUtcNow(), Mexico).DateTime);

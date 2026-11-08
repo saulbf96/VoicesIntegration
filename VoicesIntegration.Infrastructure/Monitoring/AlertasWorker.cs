@@ -68,6 +68,8 @@ internal sealed class AlertasWorker(
     private int _rechazadosAvisados;
     private DateTime _ultimoAvisoRechazo = DateTime.MinValue;
     private DateTime _arranqueMx;
+    private long _guardadosAnterior;
+    private DateTime _ultimoAvisoBandeja = DateTime.MinValue;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -102,6 +104,7 @@ internal sealed class AlertasWorker(
 
             // El corte que terminó cuando arrancamos (el último que acaba cerca del arranque), recortado al horario.
             var corte = r.VentanasSinServicio
+                .Where(v => v.Tipo != DowntimeWindow.TipoNoLlegaron)   // aquí solo importa si la API estuvo APAGADA
                 .Where(v => v.Hasta >= _arranqueMx.AddMinutes(-10) && v.Desde <= _arranqueMx)
                 .Select(v => Recortar(v.Desde, v.Hasta))
                 .FirstOrDefault(v => v is not null);
@@ -175,24 +178,39 @@ internal sealed class AlertasWorker(
                 "Si en ese rango SÍ había campañas corriendo, faltan llamadas:\n" + Accion(desde, volvio), ct);
         }
 
-        // 3) BD sin responder: avisos esperando en la bandeja (no se pierden).
+        // 3) Avisos atrasados en la bandeja (no se pierden). Dos causas posibles, con mensaje distinto:
+        //    a) la BD no responde (no baja nada);  b) llegan más rápido de lo que se alcanzan a guardar (sí se guardan, pero va atrás).
+        //    Se avisa al empezar, se recuerda cada hora mientras siga (con los números) y se avisa al terminar.
         var st = SafeStatus();
         if (st is not null)
         {
             var viejo = st.OldestPendingUtc is { } op ? (time.GetUtcNow() - op).TotalMinutes : 0;
-            if (_bdDesde is null && st.Pending > 0 && viejo >= o.MinutosBdSinResponder)
+            var guardados = tracker.SavedTotal - _guardadosAnterior;   // guardados en BD desde la revisión anterior (~1 min)
+            _guardadosAnterior = tracker.SavedTotal;
+            var bdParada = guardados == 0;
+            var abrir = _bdDesde is null && st.Pending > 0 && viejo >= o.MinutosBdSinResponder;
+            var recordar = _bdDesde is not null && st.Pending > 0 && (ahora - _ultimoAvisoBandeja).TotalMinutes >= 60;
+            if (abrir || recordar)
             {
-                _bdDesde = ahora.AddMinutes(-viejo);
-                await notificador.EnviarAsync("La base de datos NO responde — avisos en espera",
-                    $"Hay {st.Pending:N0} avisos esperando en la bandeja desde hace {(int)viejo} min (desde las {_bdDesde:HH:mm}).\n" +
-                    "NO se pierden: están guardados en disco y se guardan solos cuando la BD regrese.\n" +
-                    "Revisa la conexión al SQL Server / la base de datos. Te aviso cuando se recupere.", ct);
+                _bdDesde ??= ahora.AddMinutes(-viejo);
+                _ultimoAvisoBandeja = ahora;
+                var cuerpo = $"Hay {st.Pending:N0} avisos esperando en la bandeja. El más viejo llegó hace {(int)viejo} min.\n" +
+                             $"En el último minuto se guardaron {guardados:N0} en la base de datos.\n\n" +
+                             "NO se pierden: están guardados en el disco del servidor y se guardan solos.\n\n" +
+                             (bdParada
+                                 ? "La base de datos NO está guardando nada: revisa la conexión al SQL Server (10.80.5.205)."
+                                 : "La base de datos sí responde, pero llegan más avisos de los que se alcanzan a guardar. " +
+                                   "Se pondrá al día cuando bajen las campañas. Si pasa seguido, avisar a sistemas para darle más velocidad.") +
+                             (recordar ? "\n\n(Recordatorio: el problema sigue. Te aviso cada hora hasta que se resuelva.)" : "\n\nTe aviso cuando se resuelva.");
+                await notificador.EnviarAsync(bdParada
+                        ? "La base de datos NO responde: avisos en espera"
+                        : $"Avisos atrasados: {st.Pending:N0} en espera de guardarse", cuerpo, ct);
             }
             else if (_bdDesde is { } bd && st.Pending == 0)
             {
                 _bdDesde = null;
-                await notificador.EnviarAsync("La base de datos se recuperó",
-                    $"La BD volvió a responder. Los avisos en espera desde las {bd:HH:mm} ya se guardaron. No hay que recuperar nada.", ct);
+                await notificador.EnviarAsync("Bandeja al día: ya se guardó todo",
+                    $"Los avisos en espera desde las {bd:HH:mm} ya se guardaron en la base de datos. No se perdió nada y no hay que recuperar nada.", ct);
             }
 
             // 4) Avisos rechazados nuevos (máximo un correo por hora).

@@ -30,5 +30,14 @@ public sealed record DowntimeWindow
     public DateTime Hasta { get; init; }
     public int Minutos { get; init; }
 
+    /// <summary>Avisos de Blaster recibidos en los 15 min antes y después del corte (si hay, se perdieron llamadas).</summary>
+    public int Avisos_Blaster_Cerca { get; init; }
 
+    /// <summary>Avisos de SMS recibidos en los 15 min antes y después del corte (si hay, se perdieron SMS).</summary>
+    public int Avisos_Sms_Cerca { get; init; }
+
+    /// <summary>SIN_SERVICIO (API apagada) o NO_LLEGARON_AVISOS (API prendida pero no llegó nada con campañas corriendo).</summary>
+    public string? Tipo { get; init; }
+
+    public const string TipoNoLlegaron = "NO_LLEGARON_AVISOS";
 }

@@ -63,6 +63,53 @@ public class WebhookInboxProcessorTests
     }
 
     [Fact]
+    public async Task Blaster_SeGuardaEnUnSoloLote()
+    {
+        var (processor, inbox, repo) = Crear();
+        for (var i = 1; i <= 25; i++)
+            inbox.Agregar($$"""{"identifier":"L{{i}}","status":"SENT","call_type":"initial","sip_code":200}""");
+        inbox.Agregar("""{"identifier":"L1","status":"SENT","call_type":"initial","sip_code":200}""");   // reenvío exacto
+
+        var r = await processor.ProcessPendingAsync(100, 4, CancellationToken.None);
+
+        Assert.Equal(1, repo.LotesGuardados);   // UNA llamada a la BD, no 26
+        Assert.Equal(25, r.Processed);
+        Assert.Equal(1, r.Duplicates);
+        Assert.Empty(inbox.Pendientes);
+    }
+
+    [Fact]
+    public async Task LoteRechazadoPorLaBd_SeGuardanUnoPorUno()
+    {
+        var (processor, inbox, repo) = Crear();
+        repo.RechazaLotes = true;   // ej. aún no se corre el script 28 en la BD
+        inbox.Agregar(Valido);
+        inbox.Agregar("""{"identifier":"A9","status":"FAILED","call_type":"initial","sip_code":480}""");
+
+        var r = await processor.ProcessPendingAsync(100, 2, CancellationToken.None);
+
+        Assert.False(r.TransientFailure);
+        Assert.Equal(2, r.Processed);
+        Assert.Empty(inbox.Pendientes);
+    }
+
+    [Fact]
+    public async Task LoteMixto_InvalidoARechazados_ValidosSeGuardan()
+    {
+        var (processor, inbox, repo) = Crear();
+        inbox.Agregar(Valido);
+        inbox.Agregar(EstadoRaro);
+        inbox.Agregar("{ esto no es json");
+
+        var r = await processor.ProcessPendingAsync(100, 2, CancellationToken.None);
+
+        Assert.Equal(1, r.Processed);
+        Assert.Equal(2, r.Rejected);
+        Assert.Single(repo.Saved);
+        Assert.Empty(inbox.Pendientes);
+    }
+
+    [Fact]
     public async Task ArchivoOcupadoPorAntivirus_SeReintenta_SinMarcarFallaDeBd()
     {
         var (processor, inbox, repo) = Crear();
@@ -190,6 +237,20 @@ public class WebhookInboxProcessorTests
                 Saved.Add(result);
                 return Task.FromResult(true);
             }
+        }
+
+        public int LotesGuardados { get; private set; }
+        /// <summary>Simula que la BD rechaza el lote por un dato (o falta el SP): el procesador debe guardar uno por uno.</summary>
+        public bool RechazaLotes { get; set; }
+
+        public async Task<IReadOnlyList<bool>> RegisterCallResultsBatchAsync(IReadOnlyList<CallEventToSave> events, CancellationToken ct)
+        {
+            if (Falla) throw new TimeoutException("SQL no responde");
+            if (RechazaLotes) throw new BatchRejectedException("falta el SP", new InvalidOperationException());
+            LotesGuardados++;
+            var r = new List<bool>();
+            foreach (var e in events) r.Add(await RegisterCallResultAsync(e.Result, e.RawPayload, e.PayloadHash, ct));
+            return r;
         }
 
         public Task<CallDetails?> GetByMessageIdAsync(string messageId, CancellationToken ct) => Task.FromResult<CallDetails?>(null);

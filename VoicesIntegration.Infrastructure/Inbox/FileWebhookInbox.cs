@@ -52,11 +52,15 @@ internal sealed class FileWebhookInbox : IWebhookInbox, IDisposable
 
 
     //Ireandoly list 
+    // NO ordenar toda la carpeta: con cientos de miles de archivos eso tarda muchísimo en CADA lote
+    // y la bandeja se atora (pasó el 2026-11-06 con ~356 mil). NTFS ya entrega los nombres en orden
+    // y el nombre empieza con los ticks de llegada → los primeros que salen son los más viejos.
+    // Se toman 'max' y solo esos se ordenan (por si el disco no fuera NTFS).
     public IReadOnlyList<InboxItem> GetPending(int max) =>
         Directory.EnumerateFiles(_pending, "*.json")
             .Select(Path.GetFileName)
-            .Order(StringComparer.Ordinal)
             .Take(max)
+            .Order(StringComparer.Ordinal)
             .Select(n => new InboxItem(n!, ParseChannel(n!), ParseReceivedAt(n!)))
             .ToList();
 
@@ -73,11 +77,18 @@ internal sealed class FileWebhookInbox : IWebhookInbox, IDisposable
 
     public InboxStatus GetStatus()
     {
-        var pending = Directory.EnumerateFiles(_pending, "*.json").Select(Path.GetFileName).Order(StringComparer.Ordinal).ToList();
+        // Solo CONTAR (sin guardar ni ordenar la lista): se llama cada minuto (latido, alertas, /health).
+        // El primero que entrega NTFS es el más viejo (nombre = ticks de llegada).
+        var pendingCount = 0;
+        string? oldest = null;
+        foreach (var f in Directory.EnumerateFiles(_pending, "*.json"))
+        {
+            if (pendingCount++ == 0) oldest = Path.GetFileName(f);
+        }
         var rejected = Directory.EnumerateFiles(_rejected, "*.json").Count();
         long? freeMb = null;
         try { freeMb = new DriveInfo(Path.GetPathRoot(_pending)!).AvailableFreeSpace / (1024 * 1024); } catch (IOException) { } catch (UnauthorizedAccessException) { }
-        return new InboxStatus(pending.Count, rejected, pending.Count > 0 ? ParseReceivedAt(pending[0]!) : null, freeMb);
+        return new InboxStatus(pendingCount, rejected, oldest is null ? null : ParseReceivedAt(oldest), freeMb);
     }
 
     /// <summary>
