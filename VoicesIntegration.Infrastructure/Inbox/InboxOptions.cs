@@ -22,6 +22,10 @@ public sealed class InboxOptions
     [Range(1, 32)]
     public int MaxDegreeOfParallelism { get; init; } = 4;
 
+    /// <summary>Lotes de Blaster que se mandan a la BD al mismo tiempo (subirlo solo si el diagnóstico dice que la BD aguanta).</summary>
+    [Range(1, 8)]
+    public int SqlParallel { get; init; } = 1;
+
     /// <summary>Si la BD falla, cuánto esperar como máximo entre reintentos.</summary>
     [Range(1, 600)]
     public int MaxRetryDelaySeconds { get; init; } = 60;
@@ -33,6 +37,14 @@ public sealed class InboxOptions
     /// <summary>/health se pone "Degraded" si queda menos de esto libre en el disco de la bandeja.</summary>
     [Range(100, 1_000_000)]
     public int MinFreeDiskMb { get; init; } = 2048;
+
+    /// <summary>Avisos por segmento: al llegar a este número el segmento se cierra y queda listo para la BD.</summary>
+    [Range(100, 100_000)]
+    public int SegmentMaxItems { get; init; } = 5000;
+
+    /// <summary>Segundos máximos que un segmento queda abierto (aunque lleguen pocos avisos).</summary>
+    [Range(1, 300)]
+    public int SegmentMaxSeconds { get; init; } = 10;
 
     /// <summary>/health se pone "Degraded" si el aviso más viejo lleva más de esto sin procesarse.</summary>
     [Range(1, 1440)]

@@ -38,6 +38,22 @@ public sealed class RegisterSmsEventHandler(
     /// <returns>true si es nuevo; false si era un duplicado.</returns>
     public async Task<bool> HandleAsync(SmsWebhookPayload payload, string rawPayload, DateTimeOffset receivedAtUtc, CancellationToken cancellationToken)
     {
+        var x = await PrepareAsync(payload, rawPayload, receivedAtUtc, cancellationToken);
+        var isNew = await repository.RegisterAsync(x.RawPayload, x.PayloadHash, x.ReceivedAtUtc, x.Detail, cancellationToken);
+
+        logger.LogDebug("SMS {Kind} {Id} {Status} → {Outcome}",
+            payload.IsBatch ? "lote" : "mensaje", payload.IsBatch ? payload.BatchId : payload.MessageId,
+            payload.Status, isNew ? "nuevo" : "duplicado");
+
+        return isNew;
+    }
+
+    /// <summary>
+    /// Valida el aviso y (si está prendido) consulta el detalle; NO guarda. Lo usa el guardado por lotes (SP 31).
+    /// Si el dato es inválido: <see cref="DomainException"/> (el aviso va a "rechazados").
+    /// </summary>
+    public async Task<SmsToSave> PrepareAsync(SmsWebhookPayload payload, string rawPayload, DateTimeOffset receivedAtUtc, CancellationToken cancellationToken)
+    {
         ArgumentNullException.ThrowIfNull(payload);
         ArgumentNullException.ThrowIfNull(rawPayload);
 
@@ -73,12 +89,6 @@ public sealed class RegisterSmsEventHandler(
         }
 
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(rawPayload));
-        var isNew = await repository.RegisterAsync(rawPayload, hash, receivedAtUtc, detail, cancellationToken);
-
-        logger.LogDebug("SMS {Kind} {Id} {Status} → {Outcome}",
-            payload.IsBatch ? "lote" : "mensaje", payload.IsBatch ? payload.BatchId : payload.MessageId,
-            payload.Status, isNew ? "nuevo" : "duplicado");
-
-        return isNew;
+        return new SmsToSave(rawPayload, hash, receivedAtUtc, detail);
     }
 }

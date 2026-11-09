@@ -15,7 +15,6 @@ public static class DependencyInjection
         // TimeProvider en vez de DateTime.UtcNow: en pruebas se puede simular la hora.
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton<Abstractions.Monitoring.ReceptionTracker>();
-
         services.AddScoped<RegisterCallResultHandler>();
         services.AddScoped<Features.Webhooks.Sms.RegisterSmsEventHandler>();
         services.AddScoped<Features.Recovery.RecoveryService>();

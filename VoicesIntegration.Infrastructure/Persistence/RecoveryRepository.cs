@@ -1,12 +1,14 @@
 using System.Data;
 using Dapper;
+using System.Diagnostics;
 using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.Logging;
 using VoicesIntegration.Application.Abstractions.Recovery;
 
 namespace VoicesIntegration.Infrastructure.Persistence;
 
 /// <summary>Recuperación: bitácora (SP 20), comparación (SP 21), cierre (SP 22), faltantes (SP 23), lotes (tabla 24 + SP 25).</summary>
-internal sealed class RecoveryRepository(ISqlConnectionFactory connectionFactory) : IRecoveryRepository
+internal sealed class RecoveryRepository(ISqlConnectionFactory connectionFactory, ILogger<RecoveryRepository> logger) : IRecoveryRepository
 {
     private const string Estado = "dbo.USP_RECUPERACION_ESTADO_VOICES";
     private const string Detalle = "dbo.TBL_RECUPERACION_DETALLE_VOICES";
@@ -85,6 +87,13 @@ internal sealed class RecoveryRepository(ISqlConnectionFactory connectionFactory
 
     public async Task BulkLoadBatchAsync(Guid jobId, int lote, IReadOnlyList<RecoveryRow> rows, CancellationToken ct)
     {
+        var sw = Stopwatch.StartNew();
+        await BulkLoadBatchOnceAsync(jobId, lote, rows, ct);
+        logger.LogInformation("[RECOVERY CARGA] Lote={Lote} Filas={Filas} {Ms}ms (tabla de paso)", lote, rows.Count, sw.ElapsedMilliseconds);
+    }
+
+    private async Task BulkLoadBatchOnceAsync(Guid jobId, int lote, IReadOnlyList<RecoveryRow> rows, CancellationToken ct)
+    {
         await using var c = connectionFactory.CreateForBulk();
         await c.OpenAsync(ct);
         // SIN TableLock: mientras se carga este lote, SQL inserta el anterior (en paralelo).
@@ -115,9 +124,13 @@ internal sealed class RecoveryRepository(ISqlConnectionFactory connectionFactory
     private async Task<bool> BulkInsertFinalOnceAsync(IReadOnlyList<RecoveryRow> rows, CancellationToken ct)
     {
         var nowMx = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, Mexico);
+        var sw = Stopwatch.StartNew();   // medición: dónde se va el tiempo de cada lote (conexión / carga / commit)
         await using var c = connectionFactory.CreateForBulk();
+        var paquete = c.PacketSize;
         await c.OpenAsync(ct);
+        var conexionMs = sw.ElapsedMilliseconds;
         await using var tx = (SqlTransaction)await c.BeginTransactionAsync(ct);
+        var inicioTxMs = sw.ElapsedMilliseconds;
         try
         {
             // Sin TableLock: los webhooks siguen entrando mientras tanto. CheckConstraints: respeta las reglas de la tabla.
@@ -127,12 +140,22 @@ internal sealed class RecoveryRepository(ISqlConnectionFactory connectionFactory
             };
             foreach (var col in RecoveryRowDataReader.FinalColumns) bulk.ColumnMappings.Add(col, col);
             await using var reader = RecoveryRowDataReader.Final(rows, nowMx);
+            var inicioCargaMs = sw.ElapsedMilliseconds;
             await bulk.WriteToServerAsync(reader, ct);
+            var finCargaMs = sw.ElapsedMilliseconds;
             await tx.CommitAsync(ct);
+            var finCommitMs = sw.ElapsedMilliseconds;
+
+            logger.LogInformation(
+                "[RECOVERY BULK] Paquete={Paquete} Filas={Filas} Conexion={Conexion}ms InicioTx={InicioTx}ms BulkCopy={BulkCopy}ms Commit={Commit}ms Total={Total}ms ({FilasPorSeg:N0} filas/s)",
+                paquete, rows.Count, conexionMs, inicioTxMs - conexionMs, finCargaMs - inicioCargaMs, finCommitMs - finCargaMs, finCommitMs,
+                rows.Count * 1000.0 / Math.Max(1, finCommitMs));
             return true;
         }
         catch (SqlException ex) when (ex.Number is 2601 or 2627)   // llave repetida: llegó por webhook justo ahora
         {
+            logger.LogWarning("[RECOVERY BULK] Filas={Filas} CHOCÓ con llave repetida tras {Total}ms → camino seguro (carga + SP 20)",
+                rows.Count, sw.ElapsedMilliseconds);
             await SafeRollbackAsync(tx);
             return false;
         }
@@ -157,8 +180,12 @@ internal sealed class RecoveryRepository(ISqlConnectionFactory connectionFactory
     public Task AddInsertedAsync(Guid jobId, int count, CancellationToken ct) =>
         ExecAsync(Estado, new { JobId = jobId, SumarInsertadas = count }, 30, ct);
 
-    public Task InsertBatchAsync(Guid jobId, int lote, CancellationToken ct) =>
-        ExecAsync("dbo.USP_RECUPERACION_INSERTAR_LOTE_VOICES", new { JobId = jobId, Lote = lote }, 0, ct);
+    public async Task InsertBatchAsync(Guid jobId, int lote, CancellationToken ct)
+    {
+        var sw = Stopwatch.StartNew();
+        await ExecAsync("dbo.USP_RECUPERACION_INSERTAR_LOTE_VOICES", new { JobId = jobId, Lote = lote }, 0, ct);
+        if (lote >= 0) logger.LogInformation("[RECOVERY SP20] Lote={Lote} {Ms}ms", lote, sw.ElapsedMilliseconds);
+    }
 
     public Task CompareAsync(Guid jobId, CancellationToken ct) =>
         ExecAsync("dbo.USP_RECUPERACION_COMPARAR_VOICES", new { JobId = jobId }, 0, ct);

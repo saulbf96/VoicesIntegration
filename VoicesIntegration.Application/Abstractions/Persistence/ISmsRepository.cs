@@ -12,4 +12,13 @@ public interface ISmsRepository
         DateTimeOffset receivedAtUtc,
         SmsMessageDetail? detail,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Guarda MUCHOS avisos de un mensaje (no "resumen de lote") en una sola llamada (SP 31), en el orden de la lista.
+    /// Devuelve, por posición, true si era nuevo. Si la BD rechaza el lote por un dato: <see cref="BatchRejectedException"/>.
+    /// </summary>
+    Task<IReadOnlyList<bool>> RegisterBatchAsync(IReadOnlyList<SmsToSave> items, CancellationToken cancellationToken);
 }
+
+/// <summary>Un aviso SMS listo para guardar (ya validado; detalle opcional).</summary>
+public sealed record SmsToSave(string RawPayload, byte[] PayloadHash, DateTimeOffset ReceivedAtUtc, SmsMessageDetail? Detail);

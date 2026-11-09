@@ -52,9 +52,63 @@ internal sealed class BlasterCallRepository(ISqlConnectionFactory connectionFact
 
 
 
-    private const string RegisterBatchProcedure = "dbo.USP_GUARDAR_LLAMADAS_LOTE_VOICES";
-    private const string BatchTableType = "dbo.TT_AVISOS_LLAMADA_VOICES";
+    // V2 (script 30): la API manda los campos del JSON ya separados; el 205 no lee JSON (el SP 28 se queda como respaldo).
+    private const string RegisterBatchProcedure = "dbo.USP_GUARDAR_LLAMADAS_LOTE_V2_VOICES";
+    private const string BatchTableType = "dbo.TT_AVISOS_LLAMADA_V2_VOICES";
     private const int BatchTimeoutSeconds = 120;
+
+    /// <summary>Campos del JSON que el SP V2 recibe ya separados (mismo orden que el tipo de tabla del script 30).</summary>
+    private static readonly string[] CamposJson =
+    [
+        "campaign_id", "campaign_name", "channel", "phone_number", "type",
+        /* aquí va J_DATA (fragmento) */
+        "message", "call_attempts", "duration_minutes", "duration_seconds",
+        "duration_transfer_minutes", "duration_transfer_seconds", "credits", "dialed_at", "failed_at",
+        "sip_code", "sip_description", "a_num", "status", "operator", "is_mobile", "outbound_route", "audio",
+    ];
+
+    /// <summary>Arma el lote para el SP V2 (columnas en el MISMO orden que dbo.TT_AVISOS_LLAMADA_V2_VOICES).</summary>
+    internal static DataTable BuildBatchTable(IReadOnlyList<CallEventToSave> events)
+    {
+        var t = new DataTable();
+        t.Columns.Add("FILA", typeof(int));
+        t.Columns.Add("IDENTIFIER", typeof(string));
+        t.Columns.Add("TIPO_LLAMADA", typeof(string));
+        t.Columns.Add("STATUS", typeof(string));
+        t.Columns.Add("SIP_CODE", typeof(int));
+        t.Columns.Add("SIP_DESCRIPTION", typeof(string));
+        t.Columns.Add("DURATION_MINUTES", typeof(int));
+        t.Columns.Add("DURATION_SECONDS", typeof(int));
+        t.Columns.Add("PAYLOAD_HASH", typeof(byte[]));
+        t.Columns.Add("RECEIVED_AT_UTC", typeof(DateTime));
+        foreach (var c in CamposJson.Take(5)) t.Columns.Add("J_" + c.ToUpperInvariant(), typeof(string));
+        t.Columns.Add("J_DATA", typeof(string));
+        foreach (var c in CamposJson.Skip(5)) t.Columns.Add("J_" + c.ToUpperInvariant(), typeof(string));
+
+        for (var i = 0; i < events.Count; i++)
+        {
+            var (r, raw, hash) = (events[i].Result, events[i].RawPayload, events[i].PayloadHash);
+            var fila = t.NewRow();
+            fila["FILA"] = i;
+            fila["IDENTIFIER"] = r.MessageId;
+            fila["TIPO_LLAMADA"] = r.CallType == CallType.Transfer ? "TRANSFER" : "INITIAL";
+            fila["STATUS"] = r.StatusText;
+            fila["SIP_CODE"] = (object?)r.SipCode ?? DBNull.Value;
+            fila["SIP_DESCRIPTION"] = (object?)r.SipDescription ?? DBNull.Value;
+            fila["DURATION_MINUTES"] = (object?)r.DurationMinutes ?? DBNull.Value;
+            fila["DURATION_SECONDS"] = (object?)r.DurationSeconds ?? DBNull.Value;
+            fila["PAYLOAD_HASH"] = hash;
+            fila["RECEIVED_AT_UTC"] = r.ReceivedAtUtc.UtcDateTime;
+
+            using var doc = System.Text.Json.JsonDocument.Parse(raw);
+            var root = doc.RootElement;
+            foreach (var c in CamposJson)
+                fila["J_" + c.ToUpperInvariant()] = (object?)CamposJsonSql.Valor(root, c) ?? DBNull.Value;
+            fila["J_DATA"] = (object?)CamposJsonSql.Fragmento(root, "data") ?? DBNull.Value;
+            t.Rows.Add(fila);
+        }
+        return t;
+    }
 
     // Errores por DATO (o porque el SP/tipo aún no existe en la BD): el lote se guarda uno por uno.
     // Cualquier otro error (timeout, conexión, bloqueo...) es falla técnica: los avisos esperan en la bandeja.
@@ -72,26 +126,7 @@ internal sealed class BlasterCallRepository(ISqlConnectionFactory connectionFact
     {
         if (events.Count == 0) return [];
 
-        var t = new DataTable();
-        t.Columns.Add("FILA", typeof(int));
-        t.Columns.Add("IDENTIFIER", typeof(string));
-        t.Columns.Add("TIPO_LLAMADA", typeof(string));
-        t.Columns.Add("STATUS", typeof(string));
-        t.Columns.Add("SIP_CODE", typeof(int));
-        t.Columns.Add("SIP_DESCRIPTION", typeof(string));
-        t.Columns.Add("DURATION_MINUTES", typeof(int));
-        t.Columns.Add("DURATION_SECONDS", typeof(int));
-        t.Columns.Add("PAYLOAD_HASH", typeof(byte[]));
-        t.Columns.Add("RAW_PAYLOAD", typeof(string));
-        t.Columns.Add("RECEIVED_AT_UTC", typeof(DateTime));
-        for (var i = 0; i < events.Count; i++)
-        {
-            var (r, raw, hash) = (events[i].Result, events[i].RawPayload, events[i].PayloadHash);
-            t.Rows.Add(i, r.MessageId, r.CallType == CallType.Transfer ? "TRANSFER" : "INITIAL", r.StatusText,
-                (object?)r.SipCode ?? DBNull.Value, (object?)r.SipDescription ?? DBNull.Value,
-                (object?)r.DurationMinutes ?? DBNull.Value, (object?)r.DurationSeconds ?? DBNull.Value,
-                hash, raw, r.ReceivedAtUtc.UtcDateTime);
-        }
+        var t = BuildBatchTable(events);
 
         try
         {

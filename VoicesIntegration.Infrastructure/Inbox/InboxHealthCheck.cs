@@ -18,6 +18,9 @@ internal sealed class InboxHealthCheck(IWebhookInbox inbox, IOptions<InboxOption
             var o = options.Value;
             var data = new Dictionary<string, object> { ["pendientes"] = s.Pending, ["rechazados"] = s.Rejected };
             if (s.FreeDiskMb is { } free) data["disco_libre_mb"] = free;
+            // Cuándo llegó el aviso pendiente más viejo (UTC): /recuperar lo usa para saber si el reporte de UN DÍA
+            // está incompleto (solo si hay pendientes de ese día o antes; los de hoy no afectan a ayer).
+            if (s.OldestPendingUtc is { } masViejo) data["pendiente_mas_viejo_utc"] = masViejo.UtcDateTime.ToString("o");
 
             if (s.FreeDiskMb is { } libre && libre < o.MinFreeDiskMb)
                 return Task.FromResult(HealthCheckResult.Degraded($"Poco espacio en disco ({libre} MB libres).", data: data));

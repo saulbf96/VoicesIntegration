@@ -214,22 +214,31 @@
   function msg(el, text, cls = '') { el.textContent = text; el.className = 'msg ' + cls; }
 
   // ---- 0) Huecos del día ----
+  // Para cada corte dice QUÉ HACER: "YA RECUPERADAS", "se está recuperando ahora", "FALTA SUBIR el reporte de …" o "no falta nada".
   $('btnHuecos').onclick = async () => {
     const out = $('huecos');
     try {
-      const r = await api('/api/reportes/huecos?fecha=' + $('fechaHuecos').value);
-      // Recuperaciones ya hechas (últimas 30): si ya se subió el reporte de ESE día y canal, el corte ya está cubierto.
+      const fecha = $('fechaHuecos').value;
+      const r = await api('/api/reportes/huecos?fecha=' + fecha);
+      // Recuperaciones (últimas 30): si ya se subió el reporte de ESE día y canal, el corte ya está cubierto (o en camino).
       const recs = await api('/api/recuperacion/').catch(() => []);
-      // Avisos que ya llegaron pero aún NO están en la BD: mientras haya, el reporte está incompleto.
+      // Avisos que ya llegaron pero aún NO están en la BD. Solo importan si son de ESE día (o antes):
+      // los pendientes de hoy no cambian el reporte de ayer.
       const salud = await fetch('/health/detalle').then(x => x.json()).catch(() => null);
-      const pendientes = salud?.revisiones?.inbox?.datos?.pendientes ?? 0;
+      const datosBandeja = salud?.revisiones?.inbox?.datos || {};
+      const pendientes = datosBandeja.pendientes ?? 0;
+      const masViejo = datosBandeja.pendiente_mas_viejo_utc ? new Date(datosBandeja.pendiente_mas_viejo_utc) : null;
+      const finDelDia = new Date(fecha + 'T23:59:59');
+      const pendDelDia = pendientes > 0 && (!masViejo || masViejo <= finDelDia);
       const avisoPend = () => {
         const d = document.createElement('div');
         d.className = 'estado-mal';
-        d.textContent = `Hay ${n(pendientes)} avisos recibidos que todavía no se guardan en la BD: este reporte está INCOMPLETO. ` +
-                        'Revísalo cuando la bandeja esté en 0 (puede marcar cortes que no existen o decir que no falta nada cuando sí falta).';
+        d.textContent = `Todavía hay avisos de este día sin guardar en la BD (${n(pendientes)} en la bandeja): este reporte está INCOMPLETO. ` +
+                        'Revísalo cuando la bandeja esté en 0.';
         return d;
       };
+      const dia = fecha.split('-').reverse().join('/');
+
       // Solo cuentan los cortes DENTRO del horario de campañas (el mismo de los correos); la madrugada no importa.
       const [hi, mi] = (r.horarioInicio || '07:00').split(':').map(Number), [hf, mf] = (r.horarioFin || '22:00').split(':').map(Number);
       const cortes = r.ventanasSinServicio.map(v => {
@@ -241,66 +250,102 @@
       }).filter(c => c.min >= 1);
       out.replaceChildren();
       const hora = x => x.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', hour12: false });
+
       if (!cortes.length) {
-        if (pendientes > 0) { out.className = 'msg'; out.append(avisoPend()); return; }
-        msg(out, 'No falta nada ese día (ni llamadas ni SMS).', 'ok');
+        out.className = 'msg';
+        if (pendDelDia) { out.append(avisoPend()); return; }
+        msg(out, `✔ Todo OK: el ${dia} no falta nada (ni llamadas ni SMS). No hay que subir ningún reporte.`, 'ok');
         return;
       }
-      const dia = $('fechaHuecos').value.split('-').reverse().join('/');
+
       // Qué se perdió en cada corte: lo que estaba llegando 5 min antes y 5 min después (lo da el reporte de huecos).
       // Solo cuenta si llegaba un volumen normal (UMBRAL); unos cuantos sueltos no son una campaña corriendo.
       const UMBRAL = 50;
       const necesitaLlamadas = c => c.bl >= UMBRAL;
       const necesitaSms      = c => c.sms >= UMBRAL;
-      // Recuperación terminada (o revisada sin faltantes) de ese canal cuyo archivo trae datos de ese día.
       const diaLocal = x => { const d = new Date(x); d.setHours(0, 0, 0, 0); return d.getTime(); };
+      const cubreDia = (j, c) => j.desde && j.hasta && diaLocal(j.desde) <= diaLocal(c.a) && diaLocal(c.a) <= diaLocal(j.hasta);
+      // Ya recuperado: recuperación terminada (o revisada sin faltantes) de ese canal cuyo archivo trae datos de ese día.
       const recuperado = (c, canal) => recs.find(j => (j.canal || 'BLASTER') === canal
-          && (j.estado === 'TERMINADO' || (j.estado === 'REVISADO' && j.faltantes === 0))
-          && j.desde && j.hasta && diaLocal(j.desde) <= diaLocal(c.a) && diaLocal(c.a) <= diaLocal(j.hasta));
-      const faltaLlamadas = c => necesitaLlamadas(c) && !recuperado(c, 'BLASTER');
-      const faltaSms      = c => necesitaSms(c) && !recuperado(c, 'SMS');
+          && (j.estado === 'TERMINADO' || (j.estado === 'REVISADO' && j.faltantes === 0)) && cubreDia(j, c));
+      // En camino: ya se subió el reporte de ese día y se está insertando (o falta darle "Insertar faltantes").
+      const enCurso = (c, canal) => recs.find(j => (j.canal || 'BLASTER') === canal
+          && (['POR_INSERTAR', 'INSERTANDO'].includes(j.estado) || (j.estado === 'REVISADO' && j.faltantes > 0)) && cubreDia(j, c));
+      const faltaLlamadas = c => necesitaLlamadas(c) && !recuperado(c, 'BLASTER') && !enCurso(c, 'BLASTER');
+      const faltaSms      = c => necesitaSms(c) && !recuperado(c, 'SMS') && !enCurso(c, 'SMS');
+      const estadoCanal = (c, canal, nombre, reporte, recuperadas) => {
+        const j = recuperado(c, canal);
+        if (j) return `✔ ${nombre} ${recuperadas} (reporte subido ${f(j.fechaSubida)})`;
+        const k = enCurso(c, canal);
+        if (k) return k.estado === 'REVISADO'
+          ? `${nombre}: el reporte ya se subió (${f(k.fechaSubida)}); falta darle "Insertar faltantes" en el historial`
+          : `${nombre}: se están recuperando ahora (reporte subido ${f(k.fechaSubida)})`;
+        return `FALTA SUBIR el reporte de ${reporte} del ${dia}`;
+      };
       const queFalta = c => {
         const nb = necesitaLlamadas(c), ns = necesitaSms(c);
-        if (!nb && !ns) return pendientes > 0 ? 'todavía no se puede saber (hay avisos sin guardar)' : 'no falta nada';
+        if (!nb && !ns) return pendDelDia ? 'todavía no se puede saber (hay avisos de este día sin guardar)'
+                                          : 'no falta nada (no estaba llegando nada en ese momento)';
         const partes = [];
-        if (nb) { const j = recuperado(c, 'BLASTER'); partes.push(j ? `llamadas Blaster YA RECUPERADAS (reporte subido ${f(j.fechaSubida)})` : 'faltan llamadas Blaster'); }
-        if (ns) { const j = recuperado(c, 'SMS'); partes.push(j ? `mensajes SMS YA RECUPERADOS (reporte subido ${f(j.fechaSubida)})` : 'faltan mensajes SMS'); }
-        return partes.join(' y ');
+        if (nb) partes.push(estadoCanal(c, 'BLASTER', 'llamadas Blaster', 'LLAMADAS', 'YA RECUPERADAS'));
+        if (ns) partes.push(estadoCanal(c, 'SMS', 'mensajes SMS', 'SMS', 'YA RECUPERADOS'));
+        return partes.join(' · ');
       };
-      const pasos = [];
-      if (cortes.some(faltaLlamadas)) pasos.push('Reporte de LLAMADAS. En "Tipo" elige: Llamadas (Blaster).');
-      if (cortes.some(faltaSms))      pasos.push('Reporte de MENSAJES SMS. En "Tipo" elige: SMS.');
-      const yaTodo = !pasos.length && cortes.some(c => necesitaLlamadas(c) || necesitaSms(c));
+
+      const subir = [];
+      if (cortes.some(faltaLlamadas)) subir.push(`Reporte de LLAMADAS del ${dia} (en "Tipo" elige: Llamadas (Blaster)).`);
+      if (cortes.some(faltaSms))      subir.push(`Reporte de MENSAJES SMS del ${dia} (en "Tipo" elige: SMS).`);
+      const algoEnCurso = cortes.some(c => (necesitaLlamadas(c) && !recuperado(c, 'BLASTER') && enCurso(c, 'BLASTER'))
+                                        || (necesitaSms(c) && !recuperado(c, 'SMS') && enCurso(c, 'SMS')));
+      const huboFaltante = cortes.some(c => necesitaLlamadas(c) || necesitaSms(c));
+      // Reporte ya subido y revisado, pero nadie le dio "Insertar faltantes".
+      const faltaInsertar = cortes.some(c => (necesitaLlamadas(c) && !recuperado(c, 'BLASTER') && enCurso(c, 'BLASTER')?.estado === 'REVISADO')
+                                          || (necesitaSms(c) && !recuperado(c, 'SMS') && enCurso(c, 'SMS')?.estado === 'REVISADO'));
 
       const p = document.createElement('div');
-      p.className = pasos.length ? 'estado-mal' : (yaTodo ? 'msg ok' : '');
-      p.textContent = pasos.length
-        ? `Faltan datos del día ${dia}. Hubo cortes en estos horarios:`
-        : yaTodo
-          ? `El ${dia} hubo cortes, pero lo que faltaba YA SE RECUPERÓ. No hay que subir nada más.`
-          : `El ${dia} el sistema estuvo sin servicio en estos horarios, pero no estaba llegando nada. No hay que subir ningún reporte.`;
+      if (subir.length) {
+        p.className = 'estado-mal';
+        p.textContent = `Faltan datos del ${dia}: hay que subir el reporte. Cortes de ese día:`;
+      } else if (algoEnCurso) {
+        p.style.color = 'var(--warn)'; p.style.fontWeight = '600';
+        p.textContent = faltaInsertar
+          ? `Los reportes del ${dia} ya se subieron, pero falta darle "Insertar faltantes" en el historial (abajo) a los que dicen REVISADO.`
+          : `Lo que faltaba del ${dia} ya se está recuperando. No hay que subir nada más; espera a que termine (llega un correo).`;
+      } else if (huboFaltante) {
+        p.className = 'msg ok';
+        p.textContent = `✔ Todo OK: el ${dia} hubo cortes, pero lo que faltaba YA SE RECUPERÓ. No hay que subir nada más.`;
+      } else {
+        p.className = 'msg ok';
+        p.textContent = `✔ Todo OK: el ${dia} hubo momentos sin servicio, pero no estaba llegando nada. No hay que subir ningún reporte.`;
+      }
+
       const ul = document.createElement('ul');
       cortes.forEach(c => {
-        const li = document.createElement('li'); li.textContent = `${hora(c.a)} a ${hora(c.b)} (${c.min} min${c.noLlegaron ? ', no llegaron avisos' : ', sin registro de la API'}): ${queFalta(c)}`;
+        const li = document.createElement('li');
+        const porQue = c.noLlegaron ? 'no llegaron avisos' : 'la API estuvo apagada';
+        li.textContent = `${hora(c.a)} a ${hora(c.b)} (${c.min} min, ${porQue}): ${queFalta(c)}`;
         if (faltaLlamadas(c) || faltaSms(c)) li.className = 'estado-mal';
+        else if ((necesitaLlamadas(c) && enCurso(c, 'BLASTER') && !recuperado(c, 'BLASTER'))
+              || (necesitaSms(c) && enCurso(c, 'SMS') && !recuperado(c, 'SMS'))) li.style.color = 'var(--warn)';
         else if (necesitaLlamadas(c) || necesitaSms(c)) li.style.color = 'var(--ok)';
         ul.appendChild(li);
       });
+
       out.className = 'msg';
-      if (pendientes > 0) out.append(avisoPend());
+      if (pendDelDia) out.append(avisoPend());
       out.append(p, ul);
 
-      if (pasos.length) {
+      if (subir.length) {
         const q = document.createElement('div');
         q.className = 'muted';
-        q.textContent = 'Sube abajo el reporte del día completo. Solo se agrega lo que falta; lo que ya estaba no se duplica.';
+        q.textContent = 'Qué subir abajo (el reporte del DÍA COMPLETO; solo se agrega lo que falta, nada se duplica): ' + subir.join('  ');
         out.append(q);
       }
       if (cortes.some(c => !necesitaLlamadas(c) && !necesitaSms(c))) {
-        const n = document.createElement('div');
-        n.className = 'muted';
-        n.textContent = 'Si sabes que en un horario marcado "no falta nada" sí corrieron campañas, sube el reporte de lo que corrió (llamadas o SMS).';
-        out.append(n);
+        const nota = document.createElement('div');
+        nota.className = 'muted';
+        nota.textContent = 'Si sabes que en un horario marcado "no falta nada" sí corrieron campañas, sube el reporte de lo que corrió (llamadas o SMS).';
+        out.append(nota);
       }
     } catch (e) { msg(out, e.message, 'err'); }
   };

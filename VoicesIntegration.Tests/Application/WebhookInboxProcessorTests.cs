@@ -172,6 +172,15 @@ public class WebhookInboxProcessorTests
         public int Total => _total;
         public Task<bool> RegisterAsync(string raw, byte[] hash, DateTimeOffset at, VoicesIntegration.Application.Abstractions.Sms.SmsMessageDetail? d, CancellationToken ct)
         { Interlocked.Increment(ref _total); return Task.FromResult(true); }
+
+        private int _lotes;
+        public int Lotes => _lotes;
+        public Task<IReadOnlyList<bool>> RegisterBatchAsync(IReadOnlyList<VoicesIntegration.Application.Abstractions.Persistence.SmsToSave> items, CancellationToken ct)
+        {
+            Interlocked.Increment(ref _lotes);
+            Interlocked.Add(ref _total, items.Count);
+            return Task.FromResult<IReadOnlyList<bool>>(items.Select(_ => true).ToList());
+        }
     }
 
     private static (WebhookInboxProcessor, FakeInbox, FakeRepository) Crear()

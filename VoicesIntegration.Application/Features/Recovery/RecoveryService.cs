@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Threading.Channels;
 using Microsoft.Extensions.Logging;
+using VoicesIntegration.Application.Abstractions.Inbox;
 using VoicesIntegration.Application.Abstractions.Notifications;
 using VoicesIntegration.Application.Abstractions.Recovery;
 using VoicesIntegration.Domain.Common;
@@ -16,14 +17,32 @@ namespace VoicesIntegration.Application.Features.Recovery;
 ///    el camino seguro (tabla de carga + SP que descarta las existentes). Al final completa a_num y limpia lo temporal.
 /// Nada se duplica: se puede subir el mismo archivo varias veces.
 /// </summary>
-public sealed class RecoveryService(IRecoveryRepository repository, IRecoveryFileReader reader, INotificador notificador, ILogger<RecoveryService> logger)
+public sealed class RecoveryService(IRecoveryRepository repository, IRecoveryFileReader reader, INotificador notificador, IWebhookInbox inbox, ILogger<RecoveryService> logger)
 {
+    /// <summary>Si la bandeja del webhook pasa de esto, la recuperación COMPARTE: espera <see cref="PausaAlCompartir"/> entre bloques.</summary>
+    public const int FrenoPendientesAlto = 20_000;
+
     /// <summary>
-    /// Filas por lote. Debe quedar MUY debajo de ~5,000: con más filas en una sola operación SQL Server
-    /// bloquea la TABLA COMPLETA (lock escalation) y los webhooks esperan hasta el timeout. Pasó el
-    /// 2026-11-07 con 20,000: de 12:15 a 13:40 la bandeja casi no guardó nada (~7 avisos/min).
+    /// Espera entre bloques cuando la bandeja va atrasada. La recuperación NUNCA se detiene del todo
+    /// (con campañas todo el día, esperar a que la bandeja baje dejaba la recuperación parada horas; 2026-11-08).
     /// </summary>
-    public const int BatchSize = 2_000;
+    public static readonly TimeSpan PausaAlCompartir = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// Filas por bloque CON CAMPAÑAS ("medio rápido"). El usuario sube reportes a cualquier hora: con bloques de 2,000
+    /// y 20 s de pausa un archivo tardaba horas (2026-11-08). Ahora la recuperación ya NO compite con el webhook por la
+    /// tabla dentro de una misma transacción (va por tabla de paso + SP 20, y los avisos esperan seguros en la bandeja).
+    /// </summary>
+    public const int BatchSize = 10_000;
+
+    /// <summary>
+    /// MODO RÁPIDO (sin campañas: madrugada / fin del día): con la bandeja del webhook casi vacía, bloques de 20,000 sin pausas.
+    /// Se decide BLOQUE POR BLOQUE: una recuperación subida de día acelera sola en cuanto bajan las campañas.
+    /// </summary>
+    public const int BatchSizeRapido = 20_000;
+
+    /// <summary>Con menos pendientes que esto en la bandeja, la recuperación va en modo rápido.</summary>
+    public const int RapidoSiBandejaMenorA = 2_000;
 
     /// <summary>Pausa entre lotes para que los webhooks (prioridad) entren a la tabla entre uno y otro.</summary>
     public static readonly TimeSpan PausaEntreLotes = TimeSpan.FromMilliseconds(50);
@@ -113,6 +132,8 @@ public sealed class RecoveryService(IRecoveryRepository repository, IRecoveryFil
 
                 // Pocas faltantes: se filtran aquí y solo esas viajan a SQL. Muchísimas: viajan todas las marcadas.
                 IdentifierSet? only = faltantes <= MaxMissingInMemory ? await repository.GetMissingIdsAsync(jobId, ct) : null;
+                logger.LogInformation("Recuperación {JobId}: empieza a insertar (bandeja del webhook: {Pendientes} pendientes; el modo se decide bloque por bloque)",
+                    jobId, inbox.GetStatus().Pending);
                 await repository.UpdateAsync(jobId, null, null, $"Insertando: 0 de {faltantes:N0}", ct);
                 await repository.InsertBatchAsync(jobId, -1, ct);   // borra lotes que hayan quedado de un intento anterior
                 await LoadAndInsertAsync(jobId, path, only, ct);
@@ -166,20 +187,39 @@ public sealed class RecoveryService(IRecoveryRepository repository, IRecoveryFil
         {
             try
             {
-                var batch = new List<RecoveryRow>(BatchSize);
+                // Tamaño del bloque decidido BLOQUE POR BLOQUE: con campañas 10,000; con la bandeja vacía 20,000.
+                int Tamano() => inbox.GetStatus().Pending < RapidoSiBandejaMenorA ? BatchSizeRapido : BatchSize;
+                var tam = Tamano();
+                logger.LogInformation("Recuperación {JobId}: modo {Modo}", jobId, tam == BatchSizeRapido ? "RÁPIDO (bloques de 20,000)" : "con campañas (bloques de 10,000)");
+                var batch = new List<RecoveryRow>(tam);
                 var seenInBatch = new IdentifierSet();   // repetidos dentro del mismo lote (entre lotes los quita SQL)
                 var lote = 0;
                 // Con la lista de faltantes: cada una se toma UNA sola vez (Remove), aunque el archivo la repita.
-                Func<string, bool>? include = only is null ? null : only.Remove;
+                long recorridas = 0;   // medición: filas del archivo revisadas para armar cada lote
+                Func<string, bool>? include = only is null ? null : id => { recorridas++; return only.Remove(id); };
+                var swLeer = Stopwatch.StartNew();
+                long esperaMs = 0;
 
                 await foreach (var row in reader.ReadAsync(path, light: false, include, token))
                 {
                     if (row.SipCode is null && row.DialedAt is null && row.FailedAt is null) continue;   // Voices no la marcó
                     if (!seenInBatch.Add(row.Identifier)) continue;
                     batch.Add(row);
-                    if (batch.Count < BatchSize) continue;
+                    if (batch.Count < tam) continue;
+                    var leerMs = swLeer.ElapsedMilliseconds;
                     await porCargar.Writer.WriteAsync((lote++, batch), token);
-                    batch = new List<RecoveryRow>(BatchSize);
+                    esperaMs = swLeer.ElapsedMilliseconds - leerMs;
+                    logger.LogInformation(
+                        "[RECOVERY LEER] Lote={Lote} Filas={Filas} RecorridasDelArchivo={Recorridas} Leer={Leer}ms EsperaACargadores={Espera}ms",
+                        lote, batch.Count, recorridas, leerMs, esperaMs);
+                    recorridas = 0;
+                    swLeer.Restart();
+                    var antes = tam;
+                    tam = Tamano();
+                    if (tam != antes)
+                        logger.LogInformation("Recuperación {JobId}: cambia a modo {Modo}", jobId,
+                            tam == BatchSizeRapido ? "RÁPIDO (bloques de 20,000: la bandeja está vacía)" : "con campañas (bloques de 10,000)");
+                    batch = new List<RecoveryRow>(tam);
                     seenInBatch.Clear();
                 }
                 if (batch.Count > 0) await porCargar.Writer.WriteAsync((lote, batch), token);
@@ -191,14 +231,9 @@ public sealed class RecoveryService(IRecoveryRepository repository, IRecoveryFil
         {
             await foreach (var (lote, rows) in porCargar.Reader.ReadAllAsync(token))
             {
-                // Rápido: ya se sabe que faltan → bulk DIRECTO a la tabla final (1 escritura por fila en vez de 3).
-                if (only is not null && await repository.BulkInsertFinalAsync(rows, token))
-                {
-                    await repository.AddInsertedAsync(jobId, rows.Count, token);
-                    await Task.Delay(PausaEntreLotes, token);
-                    continue;
-                }
-                // Camino seguro (chocó con un webhook, o son demasiadas para la lista en memoria): tabla de carga + SP.
+                // SIEMPRE por la tabla de carga (no toca la tabla final ni estorba al webhook) y luego el SP 20 dentro del 205.
+                // Medido en el 205 (2026-11-08): SqlBulkCopy DIRECTO a TBL_LLAMADAS = 15–115 s por 2,000 (y bloquea al webhook);
+                // tabla de paso + INSERT…SELECT = 0.12 s por 2,000.
                 await repository.BulkLoadBatchAsync(jobId, lote, rows, token);
                 await porInsertar.Writer.WriteAsync(lote, token);
             }
@@ -213,8 +248,9 @@ public sealed class RecoveryService(IRecoveryRepository repository, IRecoveryFil
         {
             await foreach (var lote in porInsertar.Reader.ReadAllAsync(token))
             {
+                await EsperarSiElWebhookVaAtrasadoAsync(jobId, token);   // si la bandeja se atrasa, comparte (también en modo rápido)
                 await repository.InsertBatchAsync(jobId, lote, token);
-                await Task.Delay(PausaEntreLotes, token);
+                if (inbox.GetStatus().Pending >= RapidoSiBandejaMenorA) await Task.Delay(PausaEntreLotes, token);
             }
         }), token);
 
@@ -231,6 +267,20 @@ public sealed class RecoveryService(IRecoveryRepository repository, IRecoveryFil
             if (real is not null) throw real;
             throw;
         }
+    }
+
+    /// <summary>
+    /// Reparto con el webhook: si la bandeja va atrasada, la recuperación sigue pero deja aire entre bloques.
+    /// Nunca se queda parada (el usuario puede subir reportes a cualquier hora y siempre avanzan).
+    /// </summary>
+    private async Task EsperarSiElWebhookVaAtrasadoAsync(Guid jobId, CancellationToken ct)
+    {
+        var pendientes = inbox.GetStatus().Pending;
+        if (pendientes <= FrenoPendientesAlto) return;
+
+        logger.LogInformation("Recuperación {JobId} compartiendo: el webhook tiene {Pendientes} pendientes; espera {Segundos} s entre bloques",
+            jobId, pendientes, (int)PausaAlCompartir.TotalSeconds);
+        await Task.Delay(PausaAlCompartir, ct);
     }
 
     private static string Truncate(string s) => s.Length <= 1000 ? s : s[..1000];

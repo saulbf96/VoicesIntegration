@@ -1,4 +1,5 @@
 using VoicesIntegration.Api.Security;
+using VoicesIntegration.Application.Abstractions.Monitoring;
 using VoicesIntegration.Application.Abstractions.Notifications;
 
 namespace VoicesIntegration.Api.Endpoints;
@@ -18,6 +19,10 @@ public static class DiagnosticoEndpoints
                     ? Results.Ok(new { enviado = true, mensaje = "Correo de prueba enviado. Revisa la bandeja (y spam)." })
                     : Results.Ok(new { enviado = false, mensaje = error });
             })
+            .RequireInternalNetworkOrApiKey();
+
+        // GET /api/diagnostico/bd: ¿el freno al guardar es la RED o el SERVIDOR de BD? (~1 minuto, no deja nada en la BD)
+        app.MapGet("/api/diagnostico/bd", async (IDiagnosticoBd diag, CancellationToken ct) => Results.Ok(await diag.MedirAsync(ct)))
             .RequireInternalNetworkOrApiKey();
 
         return app;

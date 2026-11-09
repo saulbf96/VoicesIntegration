@@ -86,5 +86,11 @@ public class RegisterSmsEventHandlerTests
             Guardados.Add((receivedAtUtc, detail));
             return Task.FromResult(true);
         }
+
+        public Task<IReadOnlyList<bool>> RegisterBatchAsync(IReadOnlyList<SmsToSave> items, CancellationToken ct)
+        {
+            foreach (var x in items) Guardados.Add((x.ReceivedAtUtc, x.Detail));
+            return Task.FromResult<IReadOnlyList<bool>>(items.Select(_ => true).ToList());
+        }
     }
 }

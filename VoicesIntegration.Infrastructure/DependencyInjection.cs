@@ -72,8 +72,9 @@ public static class DependencyInjection
             .Bind(configuration.GetSection(InboxOptions.SectionName))
             .ValidateDataAnnotations()
             .ValidateOnStart();
-        services.AddSingleton<FileWebhookInbox>();
-        services.AddSingleton<IWebhookInbox>(sp => sp.GetRequiredService<FileWebhookInbox>());
+        services.AddSingleton<FileWebhookInbox>();   // bandeja vieja (un archivo por aviso): solo para terminar de vaciarla
+        services.AddSingleton<SegmentedWebhookInbox>();
+        services.AddSingleton<IWebhookInbox>(sp => sp.GetRequiredService<SegmentedWebhookInbox>());
         services.AddHostedService<WebhookInboxWorker>();
 
         // ---- Recuperación: el usuario sube el reporte de Voices y se insertan solo las faltantes ----
@@ -88,6 +89,7 @@ public static class DependencyInjection
 
         // ---- Monitoreo: registro de disponibilidad cada minuto + resumen diario de huecos en el log ----
         services.AddScoped<IMonitoringRepository, MonitoringRepository>();
+        services.AddScoped<IDiagnosticoBd, DiagnosticoBd>();
         services.AddHostedService<HeartbeatWorker>();
 
         // Avisos por correo (igual que CCC): inicio de recepción, huecos, fallas y resumen del día.
