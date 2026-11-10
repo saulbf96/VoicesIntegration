@@ -13,7 +13,7 @@ internal sealed class RecoveryRepository(ISqlConnectionFactory connectionFactory
     private const string Estado = "dbo.USP_RECUPERACION_ESTADO_VOICES";
     private const string Detalle = "dbo.TBL_RECUPERACION_DETALLE_VOICES";
     private const string Carga = "dbo.TBL_RECUPERACION_CARGA_VOICES";
-    private const string Final = "dbo.TBL_LLAMADAS_VOICES";
+    private const string Final = "dbo.TBL_LLAMADAS_RECUPERADAS_VOICES";
 
     public Task CreateAsync(Guid jobId, string fileName, long sizeBytes, string? user, string canal, CancellationToken ct) =>
         ExecAsync(Estado, new { JobId = jobId, Estado = RecoveryStates.Subido, Archivo = Cut(fileName, 260), TamanoBytes = sizeBytes, Usuario = Cut(user, 100), Canal = canal }, 30, ct);
@@ -108,12 +108,12 @@ internal sealed class RecoveryRepository(ISqlConnectionFactory connectionFactory
 
     private static readonly TimeZoneInfo Mexico = FindMexico();
 
-    public async Task<bool> BulkInsertFinalAsync(IReadOnlyList<RecoveryRow> rows, CancellationToken ct)
+    public async Task<bool> BulkInsertFinalAsync(Guid jobId, IReadOnlyList<RecoveryRow> rows, CancellationToken ct)
     {
         // Bloqueo mutuo (deadlock 1205) con otra carga o un webhook: SQL deshace el lote; se reintenta hasta 3 veces.
         for (var intento = 1; ; intento++)
         {
-            try { return await BulkInsertFinalOnceAsync(rows, ct); }
+            try { return await BulkInsertFinalOnceAsync(jobId, rows, ct); }
             catch (SqlException ex) when (ex.Number == 1205 && intento < 3)
             {
                 await Task.Delay(TimeSpan.FromMilliseconds(200 * intento), ct);
@@ -121,7 +121,7 @@ internal sealed class RecoveryRepository(ISqlConnectionFactory connectionFactory
         }
     }
 
-    private async Task<bool> BulkInsertFinalOnceAsync(IReadOnlyList<RecoveryRow> rows, CancellationToken ct)
+    private async Task<bool> BulkInsertFinalOnceAsync(Guid jobId, IReadOnlyList<RecoveryRow> rows, CancellationToken ct)
     {
         var nowMx = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, Mexico);
         var sw = Stopwatch.StartNew();   // medición: dónde se va el tiempo de cada lote (conexión / carga / commit)
@@ -133,13 +133,14 @@ internal sealed class RecoveryRepository(ISqlConnectionFactory connectionFactory
         var inicioTxMs = sw.ElapsedMilliseconds;
         try
         {
-            // Sin TableLock: los webhooks siguen entrando mientras tanto. CheckConstraints: respeta las reglas de la tabla.
-            using var bulk = new SqlBulkCopy(c, SqlBulkCopyOptions.CheckConstraints, tx)
+            // Tabla de recuperadas: solo la escribe la recuperación (el webhook no la toca). TableLock: los 2 cargadores se
+            // turnan con un solo candado (sin deadlocks entre ellos); los lectores no esperan (RCSI).
+            using var bulk = new SqlBulkCopy(c, SqlBulkCopyOptions.CheckConstraints | SqlBulkCopyOptions.TableLock, tx)
             {
                 DestinationTableName = Final, BulkCopyTimeout = 0, BatchSize = rows.Count, EnableStreaming = true
             };
             foreach (var col in RecoveryRowDataReader.FinalColumns) bulk.ColumnMappings.Add(col, col);
-            await using var reader = RecoveryRowDataReader.Final(rows, nowMx);
+            await using var reader = RecoveryRowDataReader.Final(jobId, rows, nowMx);
             var inicioCargaMs = sw.ElapsedMilliseconds;
             await bulk.WriteToServerAsync(reader, ct);
             var finCargaMs = sw.ElapsedMilliseconds;
@@ -152,7 +153,7 @@ internal sealed class RecoveryRepository(ISqlConnectionFactory connectionFactory
                 rows.Count * 1000.0 / Math.Max(1, finCommitMs));
             return true;
         }
-        catch (SqlException ex) when (ex.Number is 2601 or 2627)   // llave repetida: llegó por webhook justo ahora
+        catch (SqlException ex) when (ex.Number is 2601 or 2627)   // llave repetida: ya estaba en recuperadas (reintento)
         {
             logger.LogWarning("[RECOVERY BULK] Filas={Filas} CHOCÓ con llave repetida tras {Total}ms → camino seguro (carga + SP 20)",
                 rows.Count, sw.ElapsedMilliseconds);
@@ -208,4 +209,6 @@ internal sealed class RecoveryRepository(ISqlConnectionFactory connectionFactory
     }
 
     private static string? Cut(string? v, int max) => v is null || v.Length <= max ? v : v[..max];
+
+    
 }

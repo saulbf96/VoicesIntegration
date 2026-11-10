@@ -29,14 +29,14 @@ public sealed class RecoveryBulkMedicionTests(ITestOutputHelper output)
             for (var b = 0; b < lotes; b++)
             {
                 var rows = Enumerable.Range(0, 2000).Select(i => Fila(rnd)).ToList();
-                Assert.True(await repo.BulkInsertFinalAsync(rows, CancellationToken.None));
+                Assert.True(await repo.BulkInsertFinalAsync(Guid.NewGuid(), rows, CancellationToken.None));
             }
         }
         finally
         {
             await using var c = new SqlConnection(cs);
             await c.OpenAsync();
-            await using var cmd = new SqlCommand($"DELETE FROM dbo.TBL_LLAMADAS_VOICES WHERE [identifier] LIKE '{Prefijo}%'", c) { CommandTimeout = 0 };
+            await using var cmd = new SqlCommand($"DELETE FROM dbo.TBL_LLAMADAS_RECUPERADAS_VOICES WHERE [identifier] LIKE '{Prefijo}%'", c) { CommandTimeout = 0 };
             output.WriteLine($"Limpieza: {await cmd.ExecuteNonQueryAsync()} filas de prueba borradas.");
         }
     }
@@ -65,7 +65,7 @@ public sealed class RecoveryBulkMedicionTests(ITestOutputHelper output)
 
             await using var c = new SqlConnection(cs);
             await c.OpenAsync();
-            await using var n = new SqlCommand($"SELECT COUNT(*) FROM dbo.TBL_LLAMADAS_VOICES WHERE [identifier] LIKE '{Prefijo}%' AND ORIGEN = 'RECUPERACION'", c);
+            await using var n = new SqlCommand($"SELECT COUNT(*) FROM dbo.TBL_LLAMADAS_RECUPERADAS_VOICES WHERE [identifier] LIKE '{Prefijo}%' AND ORIGEN = 'RECUPERACION'", c);
             Assert.Equal(lotes * filas, (int)(await n.ExecuteScalarAsync())!);   // todas llegaron a la tabla final
         }
         finally
@@ -73,7 +73,7 @@ public sealed class RecoveryBulkMedicionTests(ITestOutputHelper output)
             await using var c = new SqlConnection(cs);
             await c.OpenAsync();
             await using var cmd = new SqlCommand(
-                $"DELETE FROM dbo.TBL_LLAMADAS_VOICES WHERE [identifier] LIKE '{Prefijo}%'; DELETE FROM dbo.TBL_RECUPERACION_CARGA_VOICES WHERE JOB_ID = '{job}';", c) { CommandTimeout = 0 };
+                $"DELETE FROM dbo.TBL_LLAMADAS_RECUPERADAS_VOICES WHERE [identifier] LIKE '{Prefijo}%'; DELETE FROM dbo.TBL_RECUPERACION_CARGA_VOICES WHERE JOB_ID = '{job}';", c) { CommandTimeout = 0 };
             output.WriteLine($"Limpieza: {await cmd.ExecuteNonQueryAsync()} filas de prueba borradas.");
         }
     }

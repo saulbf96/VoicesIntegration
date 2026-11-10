@@ -3,7 +3,9 @@ using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Options;
 using Microsoft.Net.Http.Headers;
 using VoicesIntegration.Api.Security;
+using VoicesIntegration.Application.Abstractions.Inbox;
 using VoicesIntegration.Application.Abstractions.Recovery;
+using VoicesIntegration.Application.Features.Recovery;
 using VoicesIntegration.Infrastructure.Recovery;
 
 namespace VoicesIntegration.Api.Endpoints;
@@ -29,13 +31,17 @@ public static class RecoveryEndpoints
         g.MapGet("/{id:guid}", async (Guid id, IRecoveryRepository repo, CancellationToken ct) =>
             await repo.GetAsync(id, ct) is { } job ? Results.Ok(job) : Results.NotFound());
 
-        g.MapPost("/{id:guid}/insertar", async (Guid id, IRecoveryRepository repo, RecoveryQueue queue, CancellationToken ct) =>
+        g.MapPost("/{id:guid}/insertar", async (Guid id, IRecoveryRepository repo, RecoveryQueue queue, IWebhookInbox inbox,
+            TimeProvider time, CancellationToken ct) =>
         {
             var job = await repo.GetAsync(id, ct);
             if (job is null) return Results.NotFound();
             if (job.Estado is not (RecoveryStates.Revisado or RecoveryStates.Error) || job.Faltantes is null)
                 return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "No se puede insertar",
                     detail: $"La recuperación está en estado {job.Estado}.");
+            // Regla: jamás el mismo día, ni con avisos pendientes de ese día en la bandeja.
+            if (RecoveryDayRule.WhyNot(job, inbox.GetStatus(), time.GetUtcNow()) is { } motivo)
+                return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "No se puede insertar todavía", detail: motivo);
             await repo.UpdateAsync(id, RecoveryStates.PorInsertar, null, "En cola para insertar...", ct);
             await queue.EnqueueAsync(new RecoveryWork(id, true, null));
             return Results.Accepted($"/api/recuperacion/{id}", new { jobId = id });

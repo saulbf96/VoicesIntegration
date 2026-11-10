@@ -35,7 +35,25 @@ internal sealed class SqlConnectionFactory : ISqlConnectionFactory
 
     private readonly string _bulkConnectionString;
 
-    public SqlConnection Create() => new(_connectionString);
+    public SqlConnection Create() => ConArithAbort(new SqlConnection(_connectionString));
 
-    public SqlConnection CreateForBulk() => new(_bulkConnectionString);
+    public SqlConnection CreateForBulk() => ConArithAbort(new SqlConnection(_bulkConnectionString));
+
+    /// <summary>
+    /// .NET se conecta con ARITHABORT OFF y SSMS con ARITHABORT ON: SQL Server guarda un plan DISTINTO para cada uno.
+    /// Medido en el 205 (09/11/2026), mismo SP y mismos 1,000 avisos: ARITHABORT OFF = 43.5 s, ON = 6–15 s.
+    /// Se pone ON cada vez que la conexión se abre (también al reusarla del pool), igual que SSMS.
+    /// </summary>
+    private static SqlConnection ConArithAbort(SqlConnection c)
+    {
+        c.StateChange += (sender, e) =>
+        {
+            if (e.CurrentState != System.Data.ConnectionState.Open || sender is not SqlConnection cn) return;
+            using var cmd = cn.CreateCommand();
+            cmd.CommandText = "SET ARITHABORT ON;";
+            cmd.CommandTimeout = 15;
+            cmd.ExecuteNonQuery();
+        };
+        return c;
+    }
 }

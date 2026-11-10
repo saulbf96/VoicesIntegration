@@ -15,7 +15,7 @@ public sealed class InboxOptions
         Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "VoicesIntegration", "inbox");
 
     /// <summary>Cuántos avisos toma por vuelta.</summary>
-    [Range(1, 5000)]
+    [Range(1, 20000)]
     public int BatchSize { get; init; } = 500;
 
     /// <summary>Cuántos guarda en paralelo (cada uno con su conexión a BD).</summary>
@@ -25,6 +25,13 @@ public sealed class InboxOptions
     /// <summary>Lotes de Blaster que se mandan a la BD al mismo tiempo (subirlo solo si el diagnóstico dice que la BD aguanta).</summary>
     [Range(1, 8)]
     public int SqlParallel { get; init; } = 1;
+
+    /// <summary>
+    /// Avisos de Blaster por llamada a la BD (por commit). Más grande = menos commits (menos esperas del log del disco).
+    /// Con lotes grandes usar SqlParallel = 1 (un lote grande bloquea la tabla completa mientras se guarda).
+    /// </summary>
+    [Range(100, 10000)]
+    public int SqlBatchSize { get; init; } = 1000;
 
     /// <summary>Si la BD falla, cuánto esperar como máximo entre reintentos.</summary>
     [Range(1, 600)]

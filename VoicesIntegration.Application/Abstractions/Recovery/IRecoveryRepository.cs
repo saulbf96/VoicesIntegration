@@ -105,10 +105,11 @@ public interface IRecoveryRepository
     Task BulkLoadBatchAsync(Guid jobId, int lote, IReadOnlyList<RecoveryRow> rows, CancellationToken ct);
 
     /// <summary>
-    /// Bulk DIRECTO a la tabla final (las que ya se sabe que faltan). Todo el lote o nada.
-    /// Devuelve false si chocó con una llamada que ya existe (un webhook llegó en ese instante): mandar el lote por el camino seguro.
+    /// Bulk DIRECTO a dbo.TBL_LLAMADAS_RECUPERADAS_VOICES (las que ya se sabe que faltan). Todo el lote o nada.
+    /// 1 escritura por llamada en vez de 3 (tabla de carga + copia + borrado). Devuelve false si chocó con una que ya
+    /// estaba en recuperadas (reintento de un archivo): ese lote va por el camino seguro (tabla de carga + SP).
     /// </summary>
-    Task<bool> BulkInsertFinalAsync(IReadOnlyList<RecoveryRow> rows, CancellationToken ct);
+    Task<bool> BulkInsertFinalAsync(Guid jobId, IReadOnlyList<RecoveryRow> rows, CancellationToken ct);
 
     /// <summary>Suma al contador de insertadas de la bitácora.</summary>
     Task AddInsertedAsync(Guid jobId, int count, CancellationToken ct);

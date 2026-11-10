@@ -105,8 +105,11 @@ public sealed class RecoveryService(IRecoveryRepository repository, IRecoveryFil
         var sw = Stopwatch.StartNew();
         try
         {
-            await repository.UpdateAsync(jobId, RecoveryStates.Insertando, null, "Buscando lo que falta...", ct);
             var job = await repository.GetAsync(jobId, ct);
+            // Regla (también aquí: el worker reanuda inserciones al reiniciar sin pasar por el endpoint).
+            if (job is not null && RecoveryDayRule.WhyNot(job, inbox.GetStatus(), DateTimeOffset.UtcNow) is { } motivo)
+                throw new DomainException(motivo);
+            await repository.UpdateAsync(jobId, RecoveryStates.Insertando, null, "Buscando lo que falta...", ct);
             var faltantes = job?.Faltantes ?? 0;
 
             if (job?.Canal == RecoveryChannels.Sms)
@@ -231,6 +234,18 @@ public sealed class RecoveryService(IRecoveryRepository repository, IRecoveryFil
         {
             await foreach (var (lote, rows) in porCargar.Reader.ReadAllAsync(token))
             {
+                // (09/11) Con la lista de faltantes: carga DIRECTA a la tabla de recuperadas (1 escritura por llamada en vez
+                // de 3). Si el lote choca con una que ya estaba en recuperadas (reintento), ese lote va por el camino seguro.
+                if (only is not null)
+                {
+                    await EsperarSiElWebhookVaAtrasadoAsync(jobId, token);
+                    if (await repository.BulkInsertFinalAsync(jobId, rows, token))
+                    {
+                        await repository.AddInsertedAsync(jobId, rows.Count, token);
+                        if (inbox.GetStatus().Pending >= RapidoSiBandejaMenorA) await Task.Delay(PausaEntreLotes, token);
+                        continue;
+                    }
+                }
                 // SIEMPRE por la tabla de carga (no toca la tabla final ni estorba al webhook) y luego el SP 20 dentro del 205.
                 // Medido en el 205 (2026-11-08): SqlBulkCopy DIRECTO a TBL_LLAMADAS = 15–115 s por 2,000 (y bloquea al webhook);
                 // tabla de paso + INSERT…SELECT = 0.12 s por 2,000.

@@ -8,7 +8,7 @@ namespace VoicesIntegration.Infrastructure.Persistence;
 /// Adaptador "streaming" para SqlBulkCopy: SQL recibe las filas al vuelo, sin armar tablas en memoria.
 /// Ligero (temporal de comparación): JOB_ID, LOTE (bloques de 100 mil), identifier, sip_code, fechas y a_num.
 /// Completo (tabla de carga): JOB_ID, LOTE y las 22 columnas del reporte.
-/// Final (directo a dbo.TBL_LLAMADAS_VOICES): las 22 columnas + status, ORIGEN y fechas en hora de México.
+/// Final (directo a dbo.TBL_LLAMADAS_RECUPERADAS_VOICES): las 22 columnas + status, ORIGEN, fechas en hora de México y JOB_ID.
 /// </summary>
 internal sealed class RecoveryRowDataReader : DbDataReader
 {
@@ -21,7 +21,7 @@ internal sealed class RecoveryRowDataReader : DbDataReader
         "sip_description_transfer", "a_num"
     ];
     internal static readonly string[] FinalColumns =
-        [.. FullColumns.Skip(2), "status", "ORIGEN", "FECHA_REGISTRO", "FECHA_ULTIMO_EVENTO", "FECHA_ACTUALIZACION"];
+        [.. FullColumns.Skip(2), "status", "ORIGEN", "FECHA_REGISTRO", "FECHA_ULTIMO_EVENTO", "FECHA_ACTUALIZACION", "JOB_ID"];
     internal const int LightBlock = 100_000;
 
     private enum Mode { Light, Full, Final }
@@ -46,9 +46,9 @@ internal sealed class RecoveryRowDataReader : DbDataReader
     public static RecoveryRowDataReader Full(Guid jobId, int lote, IReadOnlyList<RecoveryRow> rows) =>
         new(jobId, Mode.Full, lote, new ListEnumerator(rows), null);
 
-    /// <summary>Final: filas listas para la tabla de llamadas (ORIGEN = RECUPERACION, fechas en hora de México).</summary>
-    public static RecoveryRowDataReader Final(IReadOnlyList<RecoveryRow> rows, DateTime nowMx) =>
-        new(Guid.Empty, Mode.Final, -1, new ListEnumerator(rows), null, nowMx);
+    /// <summary>Final: filas listas para la tabla de recuperadas (ORIGEN = RECUPERACION, fechas en hora de México, JOB_ID).</summary>
+    public static RecoveryRowDataReader Final(Guid jobId, IReadOnlyList<RecoveryRow> rows, DateTime nowMx) =>
+        new(jobId, Mode.Final, -1, new ListEnumerator(rows), null, nowMx);
 
     private RecoveryRowDataReader(Guid jobId, Mode mode, int lote, IAsyncEnumerator<RecoveryRow> e, Func<int, Task>? onProgress, DateTime nowMx = default)
     {
@@ -77,6 +77,7 @@ internal sealed class RecoveryRowDataReader : DbDataReader
                 23 => "RECUPERACION",
                 24 or 26 => _nowMx,
                 25 => r.FailedAt ?? r.DialedAt,
+                27 => _jobId,
                 18 => r.Transfer ?? false,                      // transfer es NOT NULL en la tabla final
                 _ => FullValue(r, ordinal + 2)
             };
@@ -107,7 +108,7 @@ internal sealed class RecoveryRowDataReader : DbDataReader
     public override Type GetFieldType(int ordinal)
     {
         if (_mode == Mode.Final)
-            return ordinal switch { 22 or 23 => typeof(string), 24 or 25 or 26 => typeof(DateTime), _ => FullType(ordinal + 2) };
+            return ordinal switch { 22 or 23 => typeof(string), 24 or 25 or 26 => typeof(DateTime), 27 => typeof(Guid), _ => FullType(ordinal + 2) };
         if (ordinal == 0) return typeof(Guid);
         if (ordinal == 1) return typeof(int);
         if (_mode == Mode.Light) return ordinal switch { 3 => typeof(int), 4 or 5 => typeof(DateTime), _ => typeof(string) };

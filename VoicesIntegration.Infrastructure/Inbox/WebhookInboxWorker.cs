@@ -42,7 +42,7 @@ internal sealed class WebhookInboxWorker(
                     nextCleanup = DateTime.UtcNow.AddHours(1);
                 }
 
-                var r = await processor.ProcessPendingAsync(o.BatchSize, o.MaxDegreeOfParallelism, stoppingToken, o.SqlParallel);
+                var r = await processor.ProcessPendingAsync(o.BatchSize, o.MaxDegreeOfParallelism, stoppingToken, o.SqlParallel, o.SqlBatchSize);
                 tracker.MarkSaved(r.Processed + r.Duplicates);   // para la alerta de bandeja atrasada
 
                 if (r.Processed + r.Duplicates + r.Rejected > 0)

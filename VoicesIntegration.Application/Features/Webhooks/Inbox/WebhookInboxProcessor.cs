@@ -37,7 +37,9 @@ public sealed class WebhookInboxProcessor(
     public const int SqlBatchSize = 1000;
 
     /// <param name="sqlParallel">Lotes de Blaster que se mandan a la BD al mismo tiempo (1 = uno tras otro).</param>
-    public async Task<InboxBatchResult> ProcessPendingAsync(int batchSize, int maxDegreeOfParallelism, CancellationToken cancellationToken, int sqlParallel = 1)
+    /// <param name="sqlBatchSize">Avisos de Blaster por llamada a la BD (por commit).</param>
+    public async Task<InboxBatchResult> ProcessPendingAsync(int batchSize, int maxDegreeOfParallelism, CancellationToken cancellationToken, int sqlParallel = 1,
+        int sqlBatchSize = SqlBatchSize)
     {
         var sw = Stopwatch.StartNew();
         var items = inbox.GetPending(batchSize);
@@ -86,7 +88,7 @@ public sealed class WebhookInboxProcessor(
         var detener = 0;   // si la BD falla, no mandar más lotes en esta vuelta
         // Todos los avisos de una MISMA llamada van en el MISMO lote: así dos lotes en paralelo nunca compiten por la
         // misma llamada (el SP ya no bloquea rangos; script 33).
-        await Parallel.ForEachAsync(LotesPorLlamada(lista, x => x.Event.Result.MessageId, SqlBatchSize),
+        await Parallel.ForEachAsync(LotesPorLlamada(lista, x => x.Event.Result.MessageId, Math.Max(1, sqlBatchSize)),
             new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, sqlParallel), CancellationToken = cancellationToken },
             async (chunk, _) =>
         {
