@@ -5,10 +5,7 @@ using VoicesIntegration.Application.Abstractions.Monitoring;
 
 namespace VoicesIntegration.Infrastructure.Persistence;
 
-/// <summary>
-/// Pruebas cortas (≈1 minuto) para ubicar el freno al guardar (2026-11-07: ~40 avisos/s sin importar el método).
-/// No deja nada en la BD: la tabla temporal desaparece sola y los inserts de prueba se deshacen (ROLLBACK).
-/// </summary>
+// Pruebas cortas de velocidad a la BD, no deja datos
 internal sealed class DiagnosticoBd(ISqlConnectionFactory factory) : IDiagnosticoBd
 {
     public async Task<DiagnosticoBdResultado> MedirAsync(CancellationToken ct)
@@ -16,7 +13,6 @@ internal sealed class DiagnosticoBd(ISqlConnectionFactory factory) : IDiagnostic
         await using var c = factory.CreateForBulk();
         await c.OpenAsync(ct);
 
-        // 1) Latencia: 20 idas y vueltas sin trabajo.
         var sw = Stopwatch.StartNew();
         for (var i = 0; i < 20; i++)
         {
@@ -25,8 +21,7 @@ internal sealed class DiagnosticoBd(ISqlConnectionFactory factory) : IDiagnostic
         }
         var latencia = sw.Elapsed.TotalMilliseconds / 20;
 
-        // 2) Red: mandar 5 MB y que SQL solo diga cuánto recibió.
-        var texto = new string('x', 2_621_440);   // 2.5 M caracteres = 5 MB en UTF-16
+        var texto = new string('x', 2_621_440);
         sw.Restart();
         await using (var cmd = new SqlCommand("SELECT DATALENGTH(@p)", c) { CommandTimeout = 300 })
         {
@@ -35,7 +30,6 @@ internal sealed class DiagnosticoBd(ISqlConnectionFactory factory) : IDiagnostic
         }
         var redMbs = 5.0 / Math.Max(sw.Elapsed.TotalSeconds, 0.001);
 
-        // 3) Carga masiva de 2,000 filas (~2.3 KB) a una tabla temporal (#): red + tempdb.
         await using (var cmd = new SqlCommand("CREATE TABLE #diag (ID INT NOT NULL, TXT NVARCHAR(MAX) NOT NULL);", c))
             await cmd.ExecuteNonQueryAsync(ct);
         var t = new DataTable();
@@ -48,7 +42,6 @@ internal sealed class DiagnosticoBd(ISqlConnectionFactory factory) : IDiagnostic
             await bulk.WriteToServerAsync(t, ct);
         var tempdb = sw.Elapsed.TotalSeconds;
 
-        // 4) BD real: 500 inserts en la tabla de eventos (con sus índices) y se DESHACEN.
         sw.Restart();
         await using (var tx = (SqlTransaction)await c.BeginTransactionAsync(ct))
         {

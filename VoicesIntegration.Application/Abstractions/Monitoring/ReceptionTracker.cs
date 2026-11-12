@@ -1,16 +1,15 @@
 namespace VoicesIntegration.Application.Abstractions.Monitoring;
 
-/// <summary>
-/// Lleva en memoria cuándo llegó el último aviso de Voices (Blaster o SMS) desde que arrancó la API.
-/// Lo usa el vigilante de alertas para avisar "empezó a recibir" y "no llegan datos desde las HH:mm".
-/// Es muy barato: se marca en cada aviso recibido.
-/// </summary>
+// Ultimo aviso recibido y total guardado (en memoria)
 public sealed class ReceptionTracker
 {
-    private long _lastTicks;    // UTC
-    private long _firstTicks;   // UTC, primer aviso desde que arrancó la API
+    private long _lastTicks;
+    private long _firstTicks;
     private long _count;
-    private long _saved;        // avisos guardados en BD desde que arrancó (para saber si la bandeja avanza)
+    private long _saved;
+    private long _lastSavedTicks;
+    private long _lastErrorTicks;
+    private volatile string? _lastError;
 
     public void Mark(DateTimeOffset receivedAtUtc)
     {
@@ -24,8 +23,23 @@ public sealed class ReceptionTracker
     public DateTimeOffset? FirstUtc => Read(ref _firstTicks);
     public long Count => Interlocked.Read(ref _count);
 
-    /// <summary>Lo llama la bandeja al guardar un lote en la BD.</summary>
-    public void MarkSaved(int count) { if (count > 0) Interlocked.Add(ref _saved, count); }
+    public void MarkSaved(int count)
+    {
+        if (count <= 0) return;
+        Interlocked.Add(ref _saved, count);
+        Interlocked.Exchange(ref _lastSavedTicks, DateTimeOffset.UtcNow.UtcTicks);
+    }
+
+    // Ultimo error de BD al guardar la bandeja
+    public void MarkError(string message)
+    {
+        _lastError = message;
+        Interlocked.Exchange(ref _lastErrorTicks, DateTimeOffset.UtcNow.UtcTicks);
+    }
+
+    public DateTimeOffset? LastSavedUtc => Read(ref _lastSavedTicks);
+    public DateTimeOffset? LastErrorUtc => Read(ref _lastErrorTicks);
+    public string? LastError => _lastError;
 
     public long SavedTotal => Interlocked.Read(ref _saved);
 

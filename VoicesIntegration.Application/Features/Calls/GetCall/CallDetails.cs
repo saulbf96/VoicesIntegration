@@ -1,6 +1,5 @@
 namespace VoicesIntegration.Application.Features.Calls.GetCall;
 
-/// <summary>Modelo de lectura: resumen de la llamada + sus eventos del webhook.</summary>
 public sealed record CallDetails
 {
     public string MessageId { get; init; } = string.Empty;
@@ -18,11 +17,7 @@ public sealed record CallDetails
     public DateTime? LastEventAtUtc { get; init; }
     public DateTime CreatedAtUtc { get; init; }
     public IReadOnlyList<CallEventItem> Events { get; init; } = [];
-
-    
 }
-
-
 
 public sealed record CallEventItem
 {

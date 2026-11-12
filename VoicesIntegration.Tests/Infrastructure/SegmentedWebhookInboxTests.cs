@@ -5,7 +5,6 @@ using VoicesIntegration.Infrastructure.Inbox;
 
 namespace VoicesIntegration.Tests.Infrastructure;
 
-/// <summary>Prueba la bandeja por SEGMENTOS en disco real (carpeta temporal que se borra al final).</summary>
 public sealed class SegmentedWebhookInboxTests : IDisposable
 {
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "voices-seg-test-" + Guid.NewGuid().ToString("N"));
@@ -40,8 +39,8 @@ public sealed class SegmentedWebhookInboxTests : IDisposable
 
         var items = await EsperarPendientes(inbox, 1000);
         Assert.Equal(1000, items.Count);
-        Assert.True(Directory.GetFiles(Path.Combine(_dir, "segments", "ready")).Length <= 10);   // no 1,000 archivos
-        Assert.Contains("José", await inbox.ReadAsync(items[0], CancellationToken.None));          // acentos intactos
+        Assert.True(Directory.GetFiles(Path.Combine(_dir, "segments", "ready")).Length <= 10);
+        Assert.Contains("José", await inbox.ReadAsync(items[0], CancellationToken.None));
     }
 
     [Fact]
@@ -54,7 +53,7 @@ public sealed class SegmentedWebhookInboxTests : IDisposable
 
         var items = await EsperarPendientes(inbox, 5);
         foreach (var it in items.Take(4)) inbox.Complete(it);
-        Assert.Single(inbox.GetPending(10));                                  // falta uno: el segmento se queda
+        Assert.Single(inbox.GetPending(10));
         Assert.Single(Directory.GetFiles(Path.Combine(_dir, "segments", "ready")));
 
         inbox.Complete(items[4]);
@@ -94,7 +93,6 @@ public sealed class SegmentedWebhookInboxTests : IDisposable
     [Fact]
     public async Task LaBandejaVieja_SeProcesaPrimero()
     {
-        // Avisos que quedaron en el formato viejo (un archivo por aviso).
         var o = Options.Create(new InboxOptions { Path = _dir });
         using (var viejo = new FileWebhookInbox(o))
             await viejo.SaveAsync(WebhookChannels.Blaster, """{"identifier":"VIEJO"}""", T0, CancellationToken.None);
@@ -102,7 +100,7 @@ public sealed class SegmentedWebhookInboxTests : IDisposable
         var (inbox, _) = Crear();
         await using var _d = inbox;
         await inbox.SaveAsync(WebhookChannels.Blaster, """{"identifier":"NUEVO"}""", T0.AddMinutes(1), CancellationToken.None);
-        await Task.Delay(1500);   // que se cierre el segmento
+        await Task.Delay(1500);
 
         var primero = Assert.Single(inbox.GetPending(10));
         Assert.Contains("VIEJO", await inbox.ReadAsync(primero, CancellationToken.None));
@@ -120,7 +118,7 @@ public sealed class SegmentedWebhookInboxTests : IDisposable
         for (var i = 0; i < 7; i++)
             await inbox.SaveAsync(WebhookChannels.Blaster, $$"""{"identifier":"E{{i}}"}""", T0, CancellationToken.None);
 
-        Assert.Equal(7, inbox.GetStatus().Pending);   // aún abierto o ya listo: cuenta igual
+        Assert.Equal(7, inbox.GetStatus().Pending);
         await EsperarPendientes(inbox, 7);
         Assert.Equal(7, inbox.GetStatus().Pending);
     }

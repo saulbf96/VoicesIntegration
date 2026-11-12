@@ -12,11 +12,6 @@ using VoicesIntegration.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// ---------- Logs a archivo (uno por día, máx. 50 MB por archivo) ----------
-// Carpeta configurable con "Logging:FilePath". Por defecto C:\ProgramData\VoicesIntegration\logs
-// Limpieza SEMANAL (LimpiezaLogsWorker): "Logging:LimpiezaDia" / "Logging:LimpiezaHora" (lunes 23:00) borra todo
-// menos el log de ese día, así la semana empieza limpia.
-// NUNCA se escriben secretos ni el JSON del aviso (trae datos personales): solo ids y estados.
 var logDir = builder.Configuration["Logging:FilePath"]
     ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "VoicesIntegration", "logs");
 
@@ -24,20 +19,18 @@ builder.Host.UseSerilog((ctx, services, cfg) => cfg
     .MinimumLevel.Information()
     .MinimumLevel.Override("Microsoft.AspNetCore", LogEventLevel.Warning)
     .MinimumLevel.Override("System.Net.Http", LogEventLevel.Warning)
-    // El health check ya responde su estado en /health; no repetirlo en el log en cada consulta.
     .MinimumLevel.Override("Microsoft.Extensions.Diagnostics.HealthChecks", LogEventLevel.Error)
     .Enrich.FromLogContext()
     .WriteTo.Console()
     .WriteTo.File(
         Path.Combine(logDir, "voices-.log"),
         rollingInterval: RollingInterval.Day,
-        retainedFileCountLimit: null,   // la limpieza semanal la hace LimpiezaLogsWorker
+        retainedFileCountLimit: null,
         fileSizeLimitBytes: 50 * 1024 * 1024,
         rollOnFileSizeLimit: true,
         shared: true,
         outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {SourceContext}: {Message:lj}{NewLine}{Exception}"));
 
-// ---------- Servicios ----------
 builder.Services.AddOptions<SecurityOptions>()
     .Bind(builder.Configuration.GetSection(SecurityOptions.SectionName))
     .ValidateDataAnnotations()
@@ -51,12 +44,8 @@ builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddOpenApi();
 
-// Al apagar (reciclado del IIS), dar tiempo a terminar el lote en curso.
 builder.Services.Configure<HostOptions>(o => o.ShutdownTimeout = TimeSpan.FromSeconds(30));
 
-// Límite de peticiones al webhook: protege el servidor si alguien lo bombardea.
-// Debe ser MAYOR que el volumen real de Blaster (en ISB se vieron miles por minuto);
-// si se queda corto, Voices recibe 429 y esos resultados se pueden perder.
 var webhookPermitsPerMinute = builder.Configuration.GetValue("Webhook:PermitsPerMinute", 30000);
 
 builder.Services.AddRateLimiter(options =>
@@ -72,11 +61,8 @@ builder.Services.AddRateLimiter(options =>
 
 var app = builder.Build();
 
-// ---------- Pipeline (el orden importa) ----------
 app.UseExceptionHandler();
 
-// Una línea por petición SOLO si algo salió mal (4xx/5xx) o tardó más de 2 s:
-// con cientos de miles de avisos al día, registrar todas llenaría el disco.
 app.UseSerilogRequestLogging(o =>
 {
     o.GetLevel = (http, elapsedMs, ex) =>
@@ -88,27 +74,36 @@ app.UseSerilogRequestLogging(o =>
 
 if (app.Environment.IsDevelopment())
 {
-    app.MapOpenApi();   // /openapi/v1.json solo en desarrollo
+    app.MapOpenApi();
 }
 else
 {
-    app.UseHsts();      // obliga HTTPS en el navegador
+    app.UseHsts();
 }
 
-// Redirigir a HTTPS solo si se pide (Security:RedirectToHttps = true). En la PC y en el IIS de pruebas
-// la API corre en http: sin esto salía el aviso "Failed to determine the https port for redirect".
 if (app.Configuration.GetValue("Security:RedirectToHttps", false))
     app.UseHttpsRedirection();
 
-// Pantalla de recuperación: http://servidor:8093/recuperar/  (archivos en wwwroot/recuperar).
-// UseDefaultFiles sirve index.html y agrega solo la "/" final si falta.
+// La direccion principal abre la pantalla de recuperacion.
+// Comparacion exacta: "/recuperar/" (con diagonal) no entra aqui, la sirve UseDefaultFiles.
+app.Use(async (context, next) =>
+{
+    var path = context.Request.Path;
+    if (path.Equals("/", StringComparison.OrdinalIgnoreCase) ||
+        path.Equals("/recuperar", StringComparison.OrdinalIgnoreCase))
+    {
+        context.Response.Redirect("/recuperar/");
+        return;
+    }
+    await next();
+});
+
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
 app.UseRateLimiter();
 
-// /health: "Healthy", "Degraded" (avisos atorados o rechazados) o "Unhealthy" (BD caída).
-// /health/detalle: lo mismo en JSON con el detalle de cada revisión (sin datos sensibles).
+// Healthy / Degraded (bandeja) / Unhealthy (BD)
 app.MapHealthChecks("/health");
 app.MapHealthChecks("/health/detalle", new HealthCheckOptions
 {
@@ -149,5 +144,5 @@ finally
     Log.CloseAndFlush();
 }
 
-// Permite crear pruebas de integración con WebApplicationFactory<Program>.
+// Para pruebas con WebApplicationFactory
 public partial class Program;

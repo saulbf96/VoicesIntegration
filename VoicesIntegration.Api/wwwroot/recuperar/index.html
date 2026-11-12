@@ -41,7 +41,6 @@
   .msg { margin-top:10px; font-size:14px; }
   .msg.err { color:var(--err); } .msg.ok { color:var(--ok); }
   .hidden { display:none; }
-  /* Círculo de carga al centro mientras el servidor trabaja */
   #overlay { position:fixed; inset:0; background:rgba(17,24,39,.55); display:flex; align-items:center; justify-content:center; z-index:50; }
   #overlay.hidden { display:none; }
   .ovbox { background:#fff; border-radius:12px; padding:28px 36px; text-align:center; min-width:320px; box-shadow:0 10px 30px rgba(0,0,0,.25); }
@@ -67,7 +66,6 @@
      
 
 <main>
-  <!-- Acceso: solo aparece si se abre desde FUERA de la red interna (pide la API Key) -->
   <section class="card hidden" id="cardAcceso">
     <h2>Acceso</h2>
     <div class="row">
@@ -76,7 +74,6 @@
     </div>
   </section>
 
-  <!-- 0) Huecos -->
   <section class="card">
     <h2>¿Faltan llamadas o SMS?</h2>
     <div class="row">
@@ -86,7 +83,6 @@
     <div id="huecos" class="msg muted"></div>
   </section>
 
-  <!-- 1) Subir -->
   <section class="card">
     <h2>Subir reporte</h2>
     <p class="muted">Reporte de campañas de Voices del día completo (.csv o .zip).</p>
@@ -104,7 +100,6 @@
     <div id="msgSubida" class="msg muted"></div>
   </section>
 
-  <!-- 2) Resultado -->
   <section class="card hidden" id="cardResultado">
     <h2>Resultado <span id="estadoTag" class="tag"></span></h2>
     <div class="muted" id="archivoInfo"></div>
@@ -122,7 +117,6 @@
     <div id="msgResultado" class="msg"></div>
   </section>
 
-  <!-- Historial -->
   <section class="card">
     <h2>Historial <button class="sec" id="btnHistorial" style="float:right;padding:5px 12px">Actualizar</button></h2>
     <table>
@@ -162,7 +156,9 @@
 
   $('apiKey').value = store.get('apiKey');
   $('apiKey').addEventListener('change', e => store.set('apiKey', e.target.value.trim()));
-  const ayer = new Date(Date.now() - 864e5); $('fechaHuecos').value = ayer.toISOString().slice(0, 10);
+  // Solo se revisan dias terminados: maximo ayer (fecha local, no UTC)
+  const ayerLocal = () => new Date(Date.now() - 864e5).toLocaleDateString('en-CA');
+  $('fechaHuecos').max = ayerLocal(); $('fechaHuecos').value = ayerLocal();
 
   const key = () => $('apiKey').value.trim();
   async function api(path, opts = {}) {
@@ -185,7 +181,6 @@
     $('ovTitulo').textContent = titulo; $('ovDetalle').textContent = detalle || '';
     $('overlay').classList.remove('hidden');
   }
-  // Aviso dentro de la página (en vez de las ventanitas del navegador). Devuelve el valor del botón elegido.
   function aviso(icono, titulo, texto, botones) {
     return new Promise(resolve => {
       $('mdIcono').textContent = icono; $('mdTitulo').textContent = titulo; $('mdTexto').textContent = texto;
@@ -201,7 +196,6 @@
     });
   }
 
-  // Deja la pantalla lista para subir otro archivo (sin recargar).
   function reiniciar() {
     clearTimeout(timer); jobId = null; finAvisado = false;
     $('archivo').value = ''; $('barra').style.width = '0';
@@ -213,151 +207,115 @@
 
   function msg(el, text, cls = '') { el.textContent = text; el.className = 'msg ' + cls; }
 
-  // ---- 0) Huecos del día ----
-  // Para cada corte dice QUÉ HACER: "YA RECUPERADAS", "se está recuperando ahora", "FALTA SUBIR el reporte de …" o "no falta nada".
+  // Mientras revisa el boton se desactiva y muestra que esta trabajando
   $('btnHuecos').onclick = async () => {
-    const out = $('huecos');
+    const out = $('huecos'), btn = $('btnHuecos');
+    if (btn.disabled) return;
+    if (!$('fechaHuecos').value) return msg(out, 'Elige un día.', 'err');
+    $('fechaHuecos').max = ayerLocal();
+    if ($('fechaHuecos').value > ayerLocal()) return msg(out, 'Solo se pueden revisar días que ya terminaron (hasta ayer).', 'err');
+    btn.disabled = true; btn.textContent = 'Revisando...';
+    msg(out, 'Revisando el día, espera un momento...', 'muted');
     try {
-      const fecha = $('fechaHuecos').value;
-      const r = await api('/api/reportes/huecos?fecha=' + fecha);
-      // Recuperaciones (últimas 30): si ya se subió el reporte de ESE día y canal, el corte ya está cubierto (o en camino).
-      const recs = await api('/api/recuperacion/').catch(() => []);
-      // Avisos que ya llegaron pero aún NO están en la BD. Solo importan si son de ESE día (o antes):
-      // los pendientes de hoy no cambian el reporte de ayer.
-      const salud = await fetch('/health/detalle').then(x => x.json()).catch(() => null);
-      const datosBandeja = salud?.revisiones?.inbox?.datos || {};
-      const pendientes = datosBandeja.pendientes ?? 0;
-      const masViejo = datosBandeja.pendiente_mas_viejo_utc ? new Date(datosBandeja.pendiente_mas_viejo_utc) : null;
-      const finDelDia = new Date(fecha + 'T23:59:59');
-      const pendDelDia = pendientes > 0 && (!masViejo || masViejo <= finDelDia);
-      const avisoPend = () => {
-        const d = document.createElement('div');
-        d.className = 'estado-mal';
-        d.textContent = `Todavía hay avisos de este día sin guardar en la BD (${n(pendientes)} en la bandeja): este reporte está INCOMPLETO. ` +
-                        'Revísalo cuando la bandeja esté en 0.';
-        return d;
-      };
-      const dia = fecha.split('-').reverse().join('/');
-
-      // Solo cuentan los cortes DENTRO del horario de campañas (el mismo de los correos); la madrugada no importa.
-      const [hi, mi] = (r.horarioInicio || '07:00').split(':').map(Number), [hf, mf] = (r.horarioFin || '22:00').split(':').map(Number);
-      const cortes = r.ventanasSinServicio.map(v => {
-        const d = new Date(v.desde), h = new Date(v.hasta);
-        const ini = new Date(d); ini.setHours(hi, mi, 0, 0);
-        const fin = new Date(d); fin.setHours(hf, mf, 0, 0);
-        const a = d < ini ? ini : d, b = h > fin ? fin : h;
-        return { a, b, min: Math.round((b - a) / 60000), bl: v.avisos_Blaster_Cerca || 0, sms: v.avisos_Sms_Cerca || 0, noLlegaron: v.tipo === 'NO_LLEGARON_AVISOS' };
-      }).filter(c => c.min >= 1);
-      out.replaceChildren();
-      const hora = x => x.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', hour12: false });
-
-      if (!cortes.length) {
-        out.className = 'msg';
-        if (pendDelDia) { out.append(avisoPend()); return; }
-        msg(out, `✔ Todo OK: el ${dia} no falta nada (ni llamadas ni SMS). No hay que subir ningún reporte.`, 'ok');
-        return;
-      }
-
-      // Qué se perdió en cada corte: lo que estaba llegando 5 min antes y 5 min después (lo da el reporte de huecos).
-      // Solo cuenta si llegaba un volumen normal (UMBRAL); unos cuantos sueltos no son una campaña corriendo.
-      const UMBRAL = 50;
-      const necesitaLlamadas = c => c.bl >= UMBRAL;
-      const necesitaSms      = c => c.sms >= UMBRAL;
-      const diaLocal = x => { const d = new Date(x); d.setHours(0, 0, 0, 0); return d.getTime(); };
-      const cubreDia = (j, c) => j.desde && j.hasta && diaLocal(j.desde) <= diaLocal(c.a) && diaLocal(c.a) <= diaLocal(j.hasta);
-      // Ya recuperado: recuperación terminada (o revisada sin faltantes) de ese canal cuyo archivo trae datos de ese día.
-      const recuperado = (c, canal) => recs.find(j => (j.canal || 'BLASTER') === canal
-          && (j.estado === 'TERMINADO' || (j.estado === 'REVISADO' && j.faltantes === 0)) && cubreDia(j, c));
-      // En camino: ya se subió el reporte de ese día y se está insertando (o falta darle "Insertar faltantes").
-      const enCurso = (c, canal) => recs.find(j => (j.canal || 'BLASTER') === canal
-          && (['POR_INSERTAR', 'INSERTANDO'].includes(j.estado) || (j.estado === 'REVISADO' && j.faltantes > 0)) && cubreDia(j, c));
-      const faltaLlamadas = c => necesitaLlamadas(c) && !recuperado(c, 'BLASTER') && !enCurso(c, 'BLASTER');
-      const faltaSms      = c => necesitaSms(c) && !recuperado(c, 'SMS') && !enCurso(c, 'SMS');
-      const estadoCanal = (c, canal, nombre, reporte, recuperadas) => {
-        const j = recuperado(c, canal);
-        if (j) return `✔ ${nombre} ${recuperadas} (reporte subido ${f(j.fechaSubida)})`;
-        const k = enCurso(c, canal);
-        if (k) return k.estado === 'REVISADO'
-          ? `${nombre}: el reporte ya se subió (${f(k.fechaSubida)}); falta darle "Insertar faltantes" en el historial`
-          : `${nombre}: se están recuperando ahora (reporte subido ${f(k.fechaSubida)})`;
-        return `FALTA SUBIR el reporte de ${reporte} del ${dia}`;
-      };
-      const queFalta = c => {
-        const nb = necesitaLlamadas(c), ns = necesitaSms(c);
-        if (!nb && !ns) return pendDelDia ? 'todavía no se puede saber (hay avisos de este día sin guardar)'
-                                          : 'no falta nada (no estaba llegando nada en ese momento)';
-        const partes = [];
-        if (nb) partes.push(estadoCanal(c, 'BLASTER', 'llamadas Blaster', 'LLAMADAS', 'YA RECUPERADAS'));
-        if (ns) partes.push(estadoCanal(c, 'SMS', 'mensajes SMS', 'SMS', 'YA RECUPERADOS'));
-        return partes.join(' · ');
-      };
-
-      const subir = [];
-      if (cortes.some(faltaLlamadas)) subir.push(`Reporte de LLAMADAS del ${dia} (en "Tipo" elige: Llamadas (Blaster)).`);
-      if (cortes.some(faltaSms))      subir.push(`Reporte de MENSAJES SMS del ${dia} (en "Tipo" elige: SMS).`);
-      const algoEnCurso = cortes.some(c => (necesitaLlamadas(c) && !recuperado(c, 'BLASTER') && enCurso(c, 'BLASTER'))
-                                        || (necesitaSms(c) && !recuperado(c, 'SMS') && enCurso(c, 'SMS')));
-      const huboFaltante = cortes.some(c => necesitaLlamadas(c) || necesitaSms(c));
-      // Reporte ya subido y revisado, pero nadie le dio "Insertar faltantes".
-      const faltaInsertar = cortes.some(c => (necesitaLlamadas(c) && !recuperado(c, 'BLASTER') && enCurso(c, 'BLASTER')?.estado === 'REVISADO')
-                                          || (necesitaSms(c) && !recuperado(c, 'SMS') && enCurso(c, 'SMS')?.estado === 'REVISADO'));
-
-      const p = document.createElement('div');
-      if (subir.length) {
-        p.className = 'estado-mal';
-        p.textContent = `Faltan datos del ${dia}: hay que subir el reporte. Cortes de ese día:`;
-      } else if (algoEnCurso) {
-        p.style.color = 'var(--warn)'; p.style.fontWeight = '600';
-        p.textContent = faltaInsertar
-          ? `Los reportes del ${dia} ya se subieron, pero falta darle "Insertar faltantes" en el historial (abajo) a los que dicen REVISADO.`
-          : `Lo que faltaba del ${dia} ya se está recuperando. No hay que subir nada más; espera a que termine (llega un correo).`;
-      } else if (huboFaltante) {
-        p.className = 'msg ok';
-        p.textContent = `✔ Todo OK: el ${dia} hubo cortes, pero lo que faltaba YA SE RECUPERÓ. No hay que subir nada más.`;
-      } else {
-        p.className = 'msg ok';
-        p.textContent = `✔ Todo OK: el ${dia} hubo momentos sin servicio, pero no estaba llegando nada. No hay que subir ningún reporte.`;
-      }
-
-      const ul = document.createElement('ul');
-      cortes.forEach(c => {
-        const li = document.createElement('li');
-        const porQue = c.noLlegaron ? 'no llegaron avisos' : 'la API estuvo apagada';
-        li.textContent = `${hora(c.a)} a ${hora(c.b)} (${c.min} min, ${porQue}): ${queFalta(c)}`;
-        if (faltaLlamadas(c) || faltaSms(c)) li.className = 'estado-mal';
-        else if ((necesitaLlamadas(c) && enCurso(c, 'BLASTER') && !recuperado(c, 'BLASTER'))
-              || (necesitaSms(c) && enCurso(c, 'SMS') && !recuperado(c, 'SMS'))) li.style.color = 'var(--warn)';
-        else if (necesitaLlamadas(c) || necesitaSms(c)) li.style.color = 'var(--ok)';
-        ul.appendChild(li);
-      });
-
-      out.className = 'msg';
-      if (pendDelDia) out.append(avisoPend());
-      out.append(p, ul);
-
-      if (subir.length) {
-        const q = document.createElement('div');
-        q.className = 'muted';
-        q.textContent = 'Qué subir abajo (el reporte del DÍA COMPLETO; solo se agrega lo que falta, nada se duplica): ' + subir.join('  ');
-        out.append(q);
-      }
-      if (cortes.some(c => !necesitaLlamadas(c) && !necesitaSms(c))) {
-        const nota = document.createElement('div');
-        nota.className = 'muted';
-        nota.textContent = 'Si sabes que en un horario marcado "no falta nada" sí corrieron campañas, sube el reporte de lo que corrió (llamadas o SMS).';
-        out.append(nota);
-      }
-    } catch (e) { msg(out, e.message, 'err'); }
+      await revisarDia(out);
+    } catch (e) {
+      msg(out, e.message, 'err');
+    } finally {
+      btn.disabled = false; btn.textContent = 'Revisar día';
+      const t = document.createElement('div');
+      t.className = 'muted';
+      t.textContent = `Revisado a las ${new Date().toLocaleTimeString('es-MX', { hour12: false })}`;
+      out.append(t);
+    }
   };
+  $('fechaHuecos').onchange = () => { $('huecos').replaceChildren(); };
 
-  // ---- 1) Subir (con barra de progreso) ----
+  async function revisarDia(out) {
+    const fecha = $('fechaHuecos').value;
+    const r = await api('/api/reportes/huecos?fecha=' + fecha);
+    const recs = await api('/api/recuperacion/').catch(() => []);
+    const salud = await fetch('/health/detalle').then(x => x.json()).catch(() => null);
+    const datosBandeja = salud?.revisiones?.inbox?.datos || {};
+    const pendientes = datosBandeja.pendientes ?? 0;
+    const masViejo = datosBandeja.pendiente_mas_viejo_utc ? new Date(datosBandeja.pendiente_mas_viejo_utc) : null;
+    const finDelDia = new Date(fecha + 'T23:59:59');
+    const pendDelDia = pendientes > 0 && (!masViejo || masViejo <= finDelDia);
+    const dia = fecha.split('-').reverse().join('/');
+    out.replaceChildren();
+    out.className = 'msg';
+
+    // Si aun hay avisos del dia en la bandeja el resultado no es final
+    if (pendDelDia) {
+      const d = document.createElement('div');
+      d.style.color = 'var(--warn)'; d.style.fontWeight = '600';
+      d.textContent = `Aún hay ${n(pendientes)} avisos en la bandeja. Revisa cuando esté en 0.`;
+      out.append(d);
+      return;
+    }
+
+    const [hi, mi] = (r.horarioInicio || '07:00').split(':').map(Number), [hf, mf] = (r.horarioFin || '22:00').split(':').map(Number);
+    const UMBRAL = 50;
+    const cortes = r.ventanasSinServicio.map(v => {
+      const d = new Date(v.desde), h = new Date(v.hasta);
+      const ini = new Date(d); ini.setHours(hi, mi, 0, 0);
+      const fin = new Date(d); fin.setHours(hf, mf, 0, 0);
+      const a = d < ini ? ini : d, b = h > fin ? fin : h;
+      return { a, b, min: Math.round((b - a) / 60000), bl: (v.avisos_Blaster_Cerca || 0) >= UMBRAL, sms: (v.avisos_Sms_Cerca || 0) >= UMBRAL };
+    }).filter(c => c.min >= 1 && (c.bl || c.sms));
+
+    const hora = x => x.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', hour12: false });
+    const diaLocal = x => { const d = new Date(x); d.setHours(0, 0, 0, 0); return d.getTime(); };
+    const cubreDia = (j, c) => j.desde && j.hasta && diaLocal(j.desde) <= diaLocal(c.a) && diaLocal(c.a) <= diaLocal(j.hasta);
+    const delCanal = (c, canal) => recs.filter(j => (j.canal || 'BLASTER') === canal && cubreDia(j, c));
+    // OK = recuperado, INSERTAR = subido pero falta "Insertar faltantes", CURSO = recuperando, FALTA = no se ha subido
+    const estado = (c, canal) => {
+      const js = delCanal(c, canal);
+      if (js.some(j => j.estado === 'TERMINADO' || (j.estado === 'REVISADO' && j.faltantes === 0))) return 'OK';
+      if (js.some(j => j.estado === 'REVISADO' && j.faltantes > 0)) return 'INSERTAR';
+      if (js.some(j => ['POR_INSERTAR', 'INSERTANDO'].includes(j.estado))) return 'CURSO';
+      return 'FALTA';
+    };
+    const canales = c => [c.bl && ['BLASTER', 'Llamadas'], c.sms && ['SMS', 'SMS']].filter(Boolean)
+      .map(([canal, nombre]) => ({ nombre, est: estado(c, canal) }));
+    const todos = cortes.flatMap(canales);
+
+    const p = document.createElement('div');
+    p.style.fontWeight = '600';
+    if (!todos.length || todos.every(x => x.est === 'OK')) {
+      p.className = 'msg ok';
+      p.textContent = todos.length ? `${dia}: todo OK (lo que faltaba ya se recuperó).` : `${dia}: todo OK, no falta nada.`;
+      out.append(p);
+      return;
+    }
+    const faltan = [...new Set(todos.filter(x => x.est === 'FALTA').map(x => x.nombre))];
+    if (faltan.length) {
+      p.className = 'estado-mal';
+      p.textContent = `${dia}: faltan datos. Sube el reporte del día de: ${faltan.join(' y ')}.`;
+    } else if (todos.some(x => x.est === 'INSERTAR')) {
+      p.style.color = 'var(--warn)';
+      p.textContent = `${dia}: falta dar "Insertar faltantes" en el historial.`;
+    } else {
+      p.style.color = 'var(--warn)';
+      p.textContent = `${dia}: recuperando, espera a que termine.`;
+    }
+
+    const texto = { OK: 'recuperado', INSERTAR: 'falta insertar', CURSO: 'recuperando', FALTA: 'falta' };
+    const ul = document.createElement('ul');
+    cortes.forEach(c => {
+      const cs = canales(c).filter(x => x.est !== 'OK');
+      if (!cs.length) return;
+      const li = document.createElement('li');
+      li.textContent = `${hora(c.a)} a ${hora(c.b)} (${c.min} min): ` + cs.map(x => `${x.nombre}: ${texto[x.est]}`).join(', ');
+      if (cs.some(x => x.est === 'FALTA')) li.className = 'estado-mal';
+      ul.appendChild(li);
+    });
+    out.append(p, ul);
+  }
+
   $('btnSubir').onclick = () => {
     const file = $('archivo').files[0], m = $('msgSubida');
     if (!file) return msg(m, 'Selecciona el archivo .csv o .zip.', 'err');
     if (!/\.(csv|zip)$/i.test(file.name)) return msg(m, 'Solo se aceptan .csv o .zip.', 'err');
-
-
-    
 
     const fd = new FormData();
     fd.append('canal', $('canal').value);
@@ -391,7 +349,6 @@
     xhr.send(fd);
   };
 
-  // ---- 2) Seguimiento ----
   function pintar(j) {
     if (ESTADOS[j.estado]) overlay(ESTADOS[j.estado], j.estado === 'LEYENDO' || j.estado === 'SUBIDO'
         ? `${n(j.filasLeidas)} registros leídos`
@@ -406,7 +363,6 @@
     canalActual = j.canal || 'BLASTER';
     $('lSinMarcar').textContent = canalActual === 'SMS' ? 'Sin estado' : 'Voices no las marcó';
     $('kRango').textContent = j.desde ? `${f(j.desde)} → ${f(j.hasta)}` : '–';
-    // SMS: aunque no falte ninguno, se puede "insertar" para completar número y texto de los que llegaron por webhook.
     const puedeInsertar = (j.estado === 'REVISADO' || (j.estado === 'ERROR' && j.faltantes !== null)) && (j.faltantes > 0 || canalActual === 'SMS');
     $('btnInsertar').disabled = !puedeInsertar;
     $('btnInsertar').textContent = j.faltantes ? `Insertar ${n(j.faltantes)} faltantes`
@@ -428,7 +384,6 @@
       else { historial(); avisarFin(j); }
     } catch (e) { overlay(null); msg($('msgResultado'), e.message, 'err'); timer = setTimeout(seguir, 5000); }
   }
-  // Aviso al terminar (una sola vez por archivo), con botón para subir otro.
   async function avisarFin(j) {
     if (finAvisado) return;
     let a = null;
@@ -458,10 +413,6 @@
     catch (e) { msg($('msgResultado'), e.message, 'err'); }
   };
 
-    // ---- Historial ----
-
-
-
   async function historial() {
     const tb = $('historial');
     try {
@@ -484,7 +435,6 @@
   $('btnHistorial').onclick = historial;
   historial();
 })();
-
 </script>
 </body>
 </html>

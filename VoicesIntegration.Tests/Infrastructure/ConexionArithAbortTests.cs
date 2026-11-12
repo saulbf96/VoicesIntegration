@@ -4,10 +4,6 @@ using Xunit.Abstractions;
 
 namespace VoicesIntegration.Tests.Infrastructure;
 
-/// <summary>
-/// Las conexiones de la API deben quedar con ARITHABORT ON (como SSMS). Con OFF, SQL usaba otro plan del SP del webhook:
-/// 43.5 s contra 6–15 s por 1,000 avisos en el 205 (09/11/2026). Solo corre con la variable VOICES_MEDICION_BD.
-/// </summary>
 public class ConexionArithAbortTests(ITestOutputHelper output)
 {
     [Fact]
@@ -17,7 +13,7 @@ public class ConexionArithAbortTests(ITestOutputHelper output)
         if (string.IsNullOrWhiteSpace(cs)) { output.WriteLine("Sin VOICES_MEDICION_BD: no se prueba."); return; }
         var factory = new SqlConnectionFactory(cs);
 
-        for (var vuelta = 1; vuelta <= 3; vuelta++)   // la 2a y 3a vez la conexión sale del pool
+        for (var vuelta = 1; vuelta <= 3; vuelta++)
         {
             await using var c = factory.Create();
             await c.OpenAsync();

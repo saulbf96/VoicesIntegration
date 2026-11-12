@@ -2,13 +2,6 @@ using System.Text.Json.Serialization;
 
 namespace VoicesIntegration.Application.Features.Webhooks.CallResult;
 
-/// <summary>
-/// JSON que manda Blaster en el webhook "Call result".
-/// Los nombres van fijos con JsonPropertyName porque son el contrato de Voices (snake_case).
-/// OJO: la documentación dice "message_id", pero el webhook REAL (verificado 2026-11-03)
-/// manda el id como "identifier". Se aceptan ambos. El JSON completo (campaña, intentos,
-/// datos del cliente, etc.) se guarda aparte en RawPayload.
-/// </summary>
 public sealed record CallResultPayload
 {
     [JsonPropertyName("message_id")] public string? MessageId { get; init; }
@@ -24,7 +17,6 @@ public sealed record CallResultPayload
     [JsonPropertyName("duration_minutes")] public int? DurationMinutes { get; init; }
     [JsonPropertyName("duration_seconds")] public int? DurationSeconds { get; init; }
 
-    /// <summary>Id de la llamada: "message_id" (doc) o "identifier" (webhook real).</summary>
     [JsonIgnore]
     public string? EffectiveMessageId => string.IsNullOrWhiteSpace(MessageId) ? Identifier : MessageId;
 }

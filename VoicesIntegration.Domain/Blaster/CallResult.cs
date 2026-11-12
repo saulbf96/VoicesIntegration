@@ -2,10 +2,6 @@ using VoicesIntegration.Domain.Common;
 
 namespace VoicesIntegration.Domain.Blaster;
 
-/// <summary>
-/// Resultado de una llamada reportado por el webhook "Call result" de Blaster.
-/// Cada webhook es un evento: una llamada puede tener varios (reintentos, transferencia).
-/// </summary>
 public sealed class CallResult
 {
     public const int MaxMessageIdLength = 100;
@@ -16,7 +12,6 @@ public sealed class CallResult
     public string MessageId { get; }
     public CallStatus Status { get; }
 
-    /// <summary>El estado tal como lo mandó Voices (SENT, FAILED, QUEUED_PROVIDER...). Es lo que se guarda en la BD.</summary>
     public string StatusText { get; }
     public CallType CallType { get; }
     public DateTimeOffset ReceivedAtUtc { get; }
@@ -27,10 +22,6 @@ public sealed class CallResult
     public string? Operator { get; }
     public bool? IsMobile { get; }
 
-    
-
-    
-    // como PhoneNumber: si Voices cambia el formato NO queremos perder el evento.
     public string? PhoneNumber { get; }
     public string? OutboundRoute { get; }
 
@@ -53,7 +44,6 @@ public sealed class CallResult
         PhoneNumber = phoneNumber;
         OutboundRoute = outboundRoute;
     }
-
 
     public static CallResult Create(
         string? messageId,
@@ -86,9 +76,6 @@ public sealed class CallResult
         if (durationMinutes < 0 || durationSeconds < 0)
             throw new DomainException("La duración no puede ser negativa.");
 
-        
-        // el payload original completo se guarda aparte (RawPayload).
-        // Texto del estado: el que mandó Voices; si no viene, el del enum (SENT / TO_REDIAL / FAILED).
         var texto = string.IsNullOrWhiteSpace(statusText)
             ? status switch { CallStatus.Sent => "SENT", CallStatus.ToRedial => "TO_REDIAL", CallStatus.Failed => "FAILED", _ => "OTHER" }
             : statusText.Trim().ToUpperInvariant();
@@ -103,7 +90,5 @@ public sealed class CallResult
             isMobile,
             Text.Truncate(phoneNumber, MaxPhoneLength),
             Text.Truncate(outboundRoute, MaxShortTextLength));
-
-
     }
 }

@@ -7,11 +7,6 @@ using VoicesIntegration.Application.Abstractions.Notifications;
 
 namespace VoicesIntegration.Infrastructure.Notificaciones;
 
-/// <summary>
-/// Sección "Correo" (igual que en CCC). Mientras Habilitado = false no se manda nada (solo queda en el log).
-/// Gmail: Servidor smtp.gmail.com, Puerto 587, Seguridad StartTls, Usuario = la cuenta y Contrasena = una
-/// "contraseña de aplicación" de Google (no la contraseña normal). NUNCA subir la contraseña a git.
-/// </summary>
 public sealed class CorreoOptions
 {
     public const string Seccion = "Correo";
@@ -20,7 +15,6 @@ public sealed class CorreoOptions
     public string Servidor { get; init; } = string.Empty;
     public int Puerto { get; init; } = 587;
 
-    /// <summary>StartTls (587, Office 365 / Gmail), SslOnConnect (465) o Ninguna (relay interno, 25).</summary>
     public string Seguridad { get; init; } = "StartTls";
 
     public string Usuario { get; init; } = string.Empty;
@@ -29,7 +23,7 @@ public sealed class CorreoOptions
     public string[] Para { get; init; } = [];
 }
 
-/// <summary>Manda los avisos por SMTP. Si el correo falla, NO tumba nada: solo queda en el log.</summary>
+// Si el correo falla solo queda en el log
 internal sealed class NotificadorCorreo(IOptions<CorreoOptions> options, ILogger<NotificadorCorreo> logger) : INotificador
 {
     public async Task EnviarAsync(string asunto, string cuerpo, CancellationToken cancellationToken)
@@ -66,7 +60,6 @@ internal sealed class NotificadorCorreo(IOptions<CorreoOptions> options, ILogger
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
-            // El motivo exacto (servidor, puerto, autenticación...) para corregir la configuración; nunca la contraseña
             logger.LogError(ex, "Falló el correo de prueba");
             return $"{ex.GetType().Name}: {ex.Message}";
         }

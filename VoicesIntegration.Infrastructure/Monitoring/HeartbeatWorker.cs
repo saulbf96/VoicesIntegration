@@ -6,12 +6,7 @@ using VoicesIntegration.Application.Abstractions.Monitoring;
 
 namespace VoicesIntegration.Infrastructure.Monitoring;
 
-/// <summary>
-/// Cada minuto registra en la BD "la API está viva" (registro de disponibilidad). Un minuto sin registro de disponibilidad = la API
-/// no estaba recibiendo, y esos avisos de Voices hay que recuperarlos del reporte de Voices.
-/// Además, al cambiar de día escribe en el LOG el resumen del día anterior (horas con cortes y
-/// rangos exactos a recuperar), para revisarlo cada mañana.
-/// </summary>
+// Registra cada minuto que la API esta arriba
 internal sealed class HeartbeatWorker(
     IServiceScopeFactory scopeFactory,
     IWebhookInbox inbox,
@@ -39,7 +34,6 @@ internal sealed class HeartbeatWorker(
                 if (failing) logger.LogInformation("Registro de disponibilidad restablecido.");
                 failing = false;
 
-                // Cambio de día: resumen del día anterior en el log.
                 var today = TodayMexico();
                 if (today != lastDay)
                 {
@@ -53,7 +47,6 @@ internal sealed class HeartbeatWorker(
             }
             catch (Exception ex)
             {
-                // Sin BD no hay registro de disponibilidad (pero los avisos siguen a salvo en la bandeja). Avisar una sola vez.
                 if (!failing) logger.LogWarning("No se pudo registrar la disponibilidad de la API: {Error}", ex.Message);
                 failing = true;
             }

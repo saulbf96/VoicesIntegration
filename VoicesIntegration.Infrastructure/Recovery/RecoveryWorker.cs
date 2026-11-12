@@ -8,10 +8,9 @@ using VoicesIntegration.Application.Features.Recovery;
 
 namespace VoicesIntegration.Infrastructure.Recovery;
 
-/// <summary>Trabajo pendiente para el proceso en segundo plano.</summary>
 public sealed record RecoveryWork(Guid JobId, bool Insert, string? FilePath);
 
-/// <summary>Cola en memoria (una recuperación a la vez, para no saturar la BD).</summary>
+// Una recuperacion a la vez
 public sealed class RecoveryQueue
 {
     private readonly Channel<RecoveryWork> _channel = Channel.CreateUnbounded<RecoveryWork>();
@@ -19,12 +18,7 @@ public sealed class RecoveryQueue
     internal ChannelReader<RecoveryWork> Reader => _channel.Reader;
 }
 
-/// <summary>
-/// Procesa las recuperaciones en segundo plano (pueden tardar minutos con millones de filas),
-/// así la pantalla no se queda esperando: solo consulta el avance.
-/// Al arrancar: reanuda las inserciones pendientes y marca como error las lecturas interrumpidas.
-/// Cada hora: cancela revisiones abandonadas y borra archivos viejos.
-/// </summary>
+// Procesa la recuperacion en segundo plano
 internal sealed class RecoveryWorker(
     RecoveryQueue queue,
     IServiceScopeFactory scopeFactory,
@@ -70,7 +64,6 @@ internal sealed class RecoveryWorker(
         }
     }
 
-    /// <summary>El archivo de cada recuperación se guarda como {jobId}.csv o {jobId}.zip.</summary>
     internal string? FindFile(Guid jobId) =>
         Directory.EnumerateFiles(options.Value.Path, jobId.ToString("N") + ".*").FirstOrDefault();
 
@@ -84,7 +77,7 @@ internal sealed class RecoveryWorker(
             {
                 if (job.Estado is RecoveryStates.PorInsertar or RecoveryStates.Insertando)
                 {
-                    await queue.EnqueueAsync(new RecoveryWork(job.JobId, true, null));   // insertar es seguro de repetir
+                    await queue.EnqueueAsync(new RecoveryWork(job.JobId, true, null));
                 }
                 else if (job.Estado is RecoveryStates.Subido or RecoveryStates.Leyendo)
                 {
@@ -110,7 +103,7 @@ internal sealed class RecoveryWorker(
             var limite = DateTime.Now.AddHours(-options.Value.ReviewedExpireHours);
             foreach (var job in (await repo.ListAsync(ct)).Where(j => j.Estado == RecoveryStates.Revisado && j.FechaActualizacion < limite))
             {
-                await repo.CancelAsync(job.JobId, ct);   // libera la tabla temporal
+                await repo.CancelAsync(job.JobId, ct);
                 RecoveryService.TryDelete(FindFile(job.JobId));
                 logger.LogInformation("Recuperación {JobId} revisada y nunca insertada: cancelada automáticamente", job.JobId);
             }

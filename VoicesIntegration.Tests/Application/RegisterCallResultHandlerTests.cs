@@ -22,7 +22,6 @@ public class RegisterCallResultHandlerTests
         SipCode = 200
     };
 
-
     [Fact]
     public async Task HandleAsync_EventoNuevo_SeGuardaYDevuelveRegistered()
     {
@@ -35,10 +34,7 @@ public class RegisterCallResultHandlerTests
         var saved = Assert.Single(repository.Saved);
         Assert.Equal("abc-123", saved.MessageId);
         Assert.Equal(CallStatus.Sent, saved.Status);
-        Assert.Equal(Now, saved.ReceivedAtUtc);   // la hora de LLEGADA, no la de proceso
-
-
-        
+        Assert.Equal(Now, saved.ReceivedAtUtc);
     }
 
     [Fact]
@@ -53,7 +49,6 @@ public class RegisterCallResultHandlerTests
         Assert.Equal(RegisterCallResultOutcome.Duplicate, second);
         Assert.Single(repository.Saved);
     }
-
 
     [Fact]
     public async Task HandleAsync_EstadoNuevoDeVoices_SeGuardaTalCual()
@@ -83,7 +78,6 @@ public class RegisterCallResultHandlerTests
     [Fact]
     public async Task HandleAsync_WebhookRealConIdentifier_UsaIdentifierComoId()
     {
-        // Así llega el webhook REAL de Voices: "identifier" en vez de "message_id".
         const string realJson = """{"identifier":"78c27271-cbe8-46ef-afac-2f22f51d2ae2","status":"FAILED","call_type":"initial","sip_code":480}""";
         var repository = new FakeRepository();
         var handler = CreateHandler(repository);
@@ -104,7 +98,6 @@ public class RegisterCallResultHandlerTests
     private static RegisterCallResultHandler CreateHandler(FakeRepository repository)
         => new(repository, NullLogger<RegisterCallResultHandler>.Instance);
 
-    /// <summary>Repositorio en memoria: simula la idempotencia del SP sin tocar SQL.</summary>
     private sealed class FakeRepository : IBlasterCallRepository
     {
         private readonly HashSet<string> _keys = [];

@@ -4,10 +4,7 @@ using VoicesIntegration.Application.Abstractions.Inbox;
 
 namespace VoicesIntegration.Infrastructure.Inbox;
 
-/// <summary>
-/// /health: "Degraded" si hay avisos atorados (más viejos que MaxPendingAgeMinutes), avisos rechazados
-/// por revisar o poco espacio en disco. "Unhealthy" si no se puede leer la carpeta.
-/// </summary>
+// Degraded si hay avisos atorados, rechazados o poco disco
 internal sealed class InboxHealthCheck(IWebhookInbox inbox, IOptions<InboxOptions> options, TimeProvider time) : IHealthCheck
 {
     public Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
@@ -18,8 +15,6 @@ internal sealed class InboxHealthCheck(IWebhookInbox inbox, IOptions<InboxOption
             var o = options.Value;
             var data = new Dictionary<string, object> { ["pendientes"] = s.Pending, ["rechazados"] = s.Rejected };
             if (s.FreeDiskMb is { } free) data["disco_libre_mb"] = free;
-            // Cuándo llegó el aviso pendiente más viejo (UTC): /recuperar lo usa para saber si el reporte de UN DÍA
-            // está incompleto (solo si hay pendientes de ese día o antes; los de hoy no afectan a ayer).
             if (s.OldestPendingUtc is { } masViejo) data["pendiente_mas_viejo_utc"] = masViejo.UtcDateTime.ToString("o");
 
             if (s.FreeDiskMb is { } libre && libre < o.MinFreeDiskMb)

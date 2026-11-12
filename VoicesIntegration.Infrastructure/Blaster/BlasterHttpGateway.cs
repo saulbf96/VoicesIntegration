@@ -7,10 +7,6 @@ using VoicesIntegration.Application.Common.Exceptions;
 
 namespace VoicesIntegration.Infrastructure.Blaster;
 
-/// <summary>
-/// Implementación de IBlasterGateway con HttpClient. El HttpClient llega ya
-/// configurado (URL base, x-api-key, timeout) desde DependencyInjection.
-/// </summary>
 internal sealed class BlasterHttpGateway(HttpClient httpClient, ILogger<BlasterHttpGateway> logger) : IBlasterGateway
 {
     private const string ServiceName = "Blaster";
@@ -23,12 +19,9 @@ internal sealed class BlasterHttpGateway(HttpClient httpClient, ILogger<BlasterH
 
             if (!response.IsSuccessStatusCode)
             {
-                // No se loguea el cuerpo completo: podría traer datos sensibles.
                 logger.LogWarning("Blaster respondió {StatusCode} al listar rutas.", (int)response.StatusCode);
                 throw new ExternalServiceException(ServiceName, $"Blaster respondió {(int)response.StatusCode} al listar rutas.");
             }
-
-
 
             var routes = await response.Content.ReadFromJsonAsync<List<OutboundRouteResponse>>(cancellationToken) ?? [];
             return routes.Select(r => new OutboundRoute(r.Id ?? string.Empty, r.Name ?? string.Empty, r.Type ?? string.Empty)).ToList();
@@ -39,7 +32,6 @@ internal sealed class BlasterHttpGateway(HttpClient httpClient, ILogger<BlasterH
         }
         catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
         {
-            // Cancelado sin que nadie lo pidiera = se agotó el timeout.
             throw new ExternalServiceException(ServiceName, "Blaster no respondió a tiempo.", ex);
         }
         catch (JsonException ex)
@@ -48,7 +40,6 @@ internal sealed class BlasterHttpGateway(HttpClient httpClient, ILogger<BlasterH
         }
     }
 
-    // Forma del JSON de Blaster: solo existe aquí, no se filtra a otras capas.
     private sealed record OutboundRouteResponse(
         [property: JsonPropertyName("id")] string? Id,
         [property: JsonPropertyName("name")] string? Name,

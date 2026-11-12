@@ -10,14 +10,7 @@ using VoicesIntegration.Infrastructure.Recovery;
 
 namespace VoicesIntegration.Api.Endpoints;
 
-/// <summary>
-/// Recuperación desde el reporte de Voices (pantalla /recuperar/). Todos exigen X-Api-Key.
-///   POST /api/recuperacion                 sube el .csv o .zip (streaming, hasta varios GB) → revisa en segundo plano
-///   GET  /api/recuperacion                 últimas 30 recuperaciones
-///   GET  /api/recuperacion/{id}            estado y conteos de una
-///   POST /api/recuperacion/{id}/insertar   inserta SOLO las faltantes
-///   POST /api/recuperacion/{id}/cancelar   descarta (no inserta nada)
-/// </summary>
+// Recuperacion desde el reporte de Voices (pantalla /recuperar/)
 public static class RecoveryEndpoints
 {
     private static readonly string[] Allowed = [".csv", ".zip"];
@@ -39,7 +32,6 @@ public static class RecoveryEndpoints
             if (job.Estado is not (RecoveryStates.Revisado or RecoveryStates.Error) || job.Faltantes is null)
                 return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "No se puede insertar",
                     detail: $"La recuperación está en estado {job.Estado}.");
-            // Regla: jamás el mismo día, ni con avisos pendientes de ese día en la bandeja.
             if (RecoveryDayRule.WhyNot(job, inbox.GetStatus(), time.GetUtcNow()) is { } motivo)
                 return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "No se puede insertar todavía", detail: motivo);
             await repo.UpdateAsync(id, RecoveryStates.PorInsertar, null, "En cola para insertar...", ct);
@@ -62,14 +54,13 @@ public static class RecoveryEndpoints
         return app;
     }
 
-    /// <summary>Recibe el archivo en STREAMING directo a disco (no se carga a memoria: puede pesar 4 GB).</summary>
+    // El archivo se guarda directo a disco, puede pesar varios GB
     private static async Task<IResult> UploadAsync(HttpContext ctx, IRecoveryRepository repo, RecoveryQueue queue,
         IOptions<RecoveryOptions> options, ILoggerFactory logs, CancellationToken ct)
     {
         var o = options.Value;
         var max = (long)o.MaxFileGb * 1024 * 1024 * 1024;
 
-        // Quitar el límite de 30 MB de Kestrel/IIS SOLO para esta petición (el webhook conserva el suyo).
         var limit = ctx.Features.Get<IHttpMaxRequestBodySizeFeature>();
         if (limit is { IsReadOnly: false }) limit.MaxRequestBodySize = max;
 
@@ -83,7 +74,7 @@ public static class RecoveryEndpoints
         Directory.CreateDirectory(o.Path);
         var reader = new MultipartReader(boundary, ctx.Request.Body);
         string? user = null, fileName = null, savedPath = null;
-        string canal = RecoveryChannels.Blaster;   // el campo "canal" debe ir ANTES del archivo en el formulario
+        string canal = RecoveryChannels.Blaster;
         long size = 0;
         var jobId = Guid.NewGuid();
 

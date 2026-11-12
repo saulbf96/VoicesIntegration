@@ -1,9 +1,6 @@
 namespace VoicesIntegration.Application.Abstractions.Recovery;
 
-/// <summary>
-/// Conjunto compacto de identifiers. Los de Voices son GUID (36 caracteres): se guardan como Guid (16 bytes)
-/// en vez de texto (~100 bytes), así millones de llaves caben en poca memoria. Los que no sean GUID van como texto.
-/// </summary>
+// Guarda los identifier como Guid para ocupar menos memoria
 public sealed class IdentifierSet
 {
     private readonly HashSet<Guid> _guids = [];
@@ -15,7 +12,6 @@ public sealed class IdentifierSet
 
     public bool Contains(string id) => Guid.TryParseExact(id, "D", out var g) ? _guids.Contains(g) : _others.Contains(id);
 
-    /// <summary>Quita la llave; true si estaba (sirve para tomar cada faltante UNA sola vez aunque el archivo la repita).</summary>
     public bool Remove(string id) => Guid.TryParseExact(id, "D", out var g) ? _guids.Remove(g) : _others.Remove(id);
 
     public void Clear() { _guids.Clear(); _others.Clear(); }

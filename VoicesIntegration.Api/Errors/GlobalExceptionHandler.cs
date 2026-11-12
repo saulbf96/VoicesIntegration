@@ -5,10 +5,7 @@ using VoicesIntegration.Domain.Common;
 
 namespace VoicesIntegration.Api.Errors;
 
-/// <summary>
-/// Un solo lugar que convierte excepciones en respuestas HTTP (ProblemDetails).
-/// Así los endpoints no llevan try/catch y nunca se filtra un stack trace al cliente.
-/// </summary>
+// Convierte excepciones a ProblemDetails sin exponer el stack trace
 internal sealed class GlobalExceptionHandler(
     IProblemDetailsService problemDetailsService,
     ILogger<GlobalExceptionHandler> logger) : IExceptionHandler
@@ -30,9 +27,6 @@ internal sealed class GlobalExceptionHandler(
             logger.LogWarning("Solicitud rechazada en {Path}: {Detail}", httpContext.Request.Path, detail);
 
         httpContext.Response.StatusCode = status;
-
-
-
 
         return await problemDetailsService.TryWriteAsync(new ProblemDetailsContext
         {

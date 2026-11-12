@@ -6,11 +6,6 @@ using Xunit.Abstractions;
 
 namespace VoicesIntegration.Tests.Infrastructure;
 
-/// <summary>
-/// MEDICIÓN (no es prueba normal): mete lotes de 2,000 llamadas con el MISMO método de la recuperación
-/// (RecoveryRepository.BulkInsertFinalAsync) en la BD indicada y muestra los tiempos. Al final borra lo que insertó.
-/// Solo corre si existe la variable VOICES_MEDICION_BD con la cadena de conexión (nunca contra producción por accidente).
-/// </summary>
 public sealed class RecoveryBulkMedicionTests(ITestOutputHelper output)
 {
     private const string Prefijo = "MEDICION-BULK-";
@@ -66,7 +61,7 @@ public sealed class RecoveryBulkMedicionTests(ITestOutputHelper output)
             await using var c = new SqlConnection(cs);
             await c.OpenAsync();
             await using var n = new SqlCommand($"SELECT COUNT(*) FROM dbo.TBL_LLAMADAS_RECUPERADAS_VOICES WHERE [identifier] LIKE '{Prefijo}%' AND ORIGEN = 'RECUPERACION'", c);
-            Assert.Equal(lotes * filas, (int)(await n.ExecuteScalarAsync())!);   // todas llegaron a la tabla final
+            Assert.Equal(lotes * filas, (int)(await n.ExecuteScalarAsync())!);
         }
         finally
         {
@@ -78,7 +73,6 @@ public sealed class RecoveryBulkMedicionTests(ITestOutputHelper output)
         }
     }
 
-    /// <summary>Llamada inventada del tamaño de una real (~1.5 KB de data), identifier y teléfono al azar como en producción.</summary>
     private static RecoveryRow Fila(Random r)
     {
         var data = "{" + string.Join(",", Enumerable.Range(0, 20).Select(k => $"\"campo{k}\":\"{new string((char)('a' + r.Next(26)), 60)}\"")) + "}";

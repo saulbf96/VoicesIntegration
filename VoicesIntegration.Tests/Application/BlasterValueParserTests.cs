@@ -20,7 +20,7 @@ public class BlasterValueParserTests
         => Assert.Throws<DomainException>(() => BlasterValueParser.ParseStatus(input));
 
     [Theory]
-    [InlineData("QUEUED_PROVIDER")]   // estado real que mandó Voices (2026-11-05) en una transferencia
+    [InlineData("QUEUED_PROVIDER")]
     [InlineData("ANSWERED")]
     public void ParseStatus_EstadoNuevo_NoSeRechaza(string input)
         => Assert.Equal(CallStatus.Other, BlasterValueParser.ParseStatus(input));

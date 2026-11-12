@@ -4,12 +4,7 @@ using VoicesIntegration.Application.Abstractions.Recovery;
 
 namespace VoicesIntegration.Infrastructure.Persistence;
 
-/// <summary>
-/// Adaptador "streaming" para SqlBulkCopy: SQL recibe las filas al vuelo, sin armar tablas en memoria.
-/// Ligero (temporal de comparación): JOB_ID, LOTE (bloques de 100 mil), identifier, sip_code, fechas y a_num.
-/// Completo (tabla de carga): JOB_ID, LOTE y las 22 columnas del reporte.
-/// Final (directo a dbo.TBL_LLAMADAS_RECUPERADAS_VOICES): las 22 columnas + status, ORIGEN, fechas en hora de México y JOB_ID.
-/// </summary>
+// Filas al vuelo para SqlBulkCopy sin cargar todo en memoria
 internal sealed class RecoveryRowDataReader : DbDataReader
 {
     internal static readonly string[] LightColumns = ["JOB_ID", "LOTE", "identifier", "sip_code", "dialed_at", "failed_at", "a_num"];
@@ -38,15 +33,12 @@ internal sealed class RecoveryRowDataReader : DbDataReader
 
     public int Count { get; private set; }
 
-    /// <summary>Ligero: el LOTE se calcula solo (cada 100 mil filas).</summary>
     public static RecoveryRowDataReader Light(Guid jobId, IAsyncEnumerable<RecoveryRow> rows, Func<int, Task> onProgress, CancellationToken ct) =>
         new(jobId, Mode.Light, -1, rows.GetAsyncEnumerator(ct), onProgress);
 
-    /// <summary>Completo: todas las filas del lote indicado.</summary>
     public static RecoveryRowDataReader Full(Guid jobId, int lote, IReadOnlyList<RecoveryRow> rows) =>
         new(jobId, Mode.Full, lote, new ListEnumerator(rows), null);
 
-    /// <summary>Final: filas listas para la tabla de recuperadas (ORIGEN = RECUPERACION, fechas en hora de México, JOB_ID).</summary>
     public static RecoveryRowDataReader Final(Guid jobId, IReadOnlyList<RecoveryRow> rows, DateTime nowMx) =>
         new(jobId, Mode.Final, -1, new ListEnumerator(rows), null, nowMx);
 
@@ -73,12 +65,12 @@ internal sealed class RecoveryRowDataReader : DbDataReader
         {
             object? f = ordinal switch
             {
-                22 => r.SipCode == 200 ? "SENT" : "FAILED",   // el reporte no trae status: 200 = SENT (verificado)
+                22 => r.SipCode == 200 ? "SENT" : "FAILED",
                 23 => "RECUPERACION",
                 24 or 26 => _nowMx,
                 25 => r.FailedAt ?? r.DialedAt,
                 27 => _jobId,
-                18 => r.Transfer ?? false,                      // transfer es NOT NULL en la tabla final
+                18 => r.Transfer ?? false,
                 _ => FullValue(r, ordinal + 2)
             };
             return f ?? DBNull.Value;

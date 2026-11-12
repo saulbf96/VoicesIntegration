@@ -9,11 +9,7 @@ using VoicesIntegration.Application.Common.Exceptions;
 
 namespace VoicesIntegration.Infrastructure.Sms;
 
-/// <summary>
-/// Estado compartido (singleton) para no saturar la API de SMS de Voices:
-/// - Memoria del detalle por message_id (si un aviso se reintenta, no se vuelve a consultar).
-/// - Pausa automática tras un 429 (límite de peticiones de la App-Key).
-/// </summary>
+// Cache del detalle por message_id para no saturar la API de SMS
 internal sealed class SmsGatewayState(IMemoryCache cache)
 {
     private long _pausedUntilTicks;
@@ -22,7 +18,6 @@ internal sealed class SmsGatewayState(IMemoryCache cache)
     public void PauseUntil(DateTimeOffset until) => Interlocked.Exchange(ref _pausedUntilTicks, until.UtcTicks);
 }
 
-/// <summary>GET /v1/sms/messages/{id} de Voices (con la x-api-key de SMS).</summary>
 internal sealed class SmsHttpGateway(
     HttpClient httpClient,
     IOptions<SmsOptions> options,
@@ -36,14 +31,14 @@ internal sealed class SmsHttpGateway(
     public async Task<SmsMessageDetail?> GetMessageAsync(string messageId, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(options.Value.ApiKey))
-            return null;   // consulta desactivada: se guarda sin detalle
+            return null;
 
         var key = "sms:" + messageId;
         if (state.Cache.TryGetValue(key, out SmsMessageDetail? cached))
             return cached;
 
         if (state.IsPaused(time.GetUtcNow()))
-            return null;   // en pausa por 429: se guarda sin detalle, sin insistirle a Voices
+            return null;
 
         using var response = await httpClient.GetAsync($"v1/sms/messages/{Uri.EscapeDataString(messageId)}", cancellationToken);
 

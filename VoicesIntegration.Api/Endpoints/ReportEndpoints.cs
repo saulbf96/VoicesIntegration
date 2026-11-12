@@ -4,12 +4,7 @@ using VoicesIntegration.Application.Abstractions.Monitoring;
 
 namespace VoicesIntegration.Api.Endpoints;
 
-/// <summary>
-/// Reporte de huecos del día: por hora (servicio, avisos Blaster/SMS, estado) y ventanas
-/// exactas sin servicio. Esos rangos son los que hay que recuperar del reporte de Voices,
-/// porque el webhook es de un solo sentido y no se le puede pedir a Voices lo que faltó.
-/// Uso: GET /api/reportes/huecos?fecha=2026-11-04   (sin fecha = hoy). Exige X-Api-Key.
-/// </summary>
+// Huecos del dia: horas sin servicio que hay que recuperar
 public static class ReportEndpoints
 {
     public static IEndpointRouteBuilder MapReportEndpoints(this IEndpointRouteBuilder app)
@@ -23,7 +18,6 @@ public static class ReportEndpoints
                     return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "Fecha inválida", detail: "Usa el formato yyyy-MM-dd.");
 
                 var r = await repo.GetGapReportAsync(dia, ct);
-                // Mismo horario de campañas que usan los correos (sección "Alertas"): la pantalla solo cuenta cortes dentro de él.
                 return Results.Ok(new
                 {
                     r.Fecha, r.Horas, r.VentanasSinServicio,

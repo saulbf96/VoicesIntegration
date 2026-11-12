@@ -4,10 +4,7 @@ using Microsoft.Extensions.Options;
 
 namespace VoicesIntegration.Api.Security;
 
-/// <summary>
-/// Filtro que exige un header con un secreto. Si falta o no coincide → 401.
-/// Un solo filtro reutilizable para la API key interna y para el webhook.
-/// </summary>
+// Valida un header secreto, si no coincide 401
 internal sealed class SecretHeaderFilter(string headerName, Func<SecurityOptions, string> selectSecret) : IEndpointFilter
 {
     public async ValueTask<object?> InvokeAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
@@ -16,8 +13,6 @@ internal sealed class SecretHeaderFilter(string headerName, Func<SecurityOptions
         var options = httpContext.RequestServices.GetRequiredService<IOptions<SecurityOptions>>().Value;
 
         var provided = httpContext.Request.Headers[headerName].ToString();
-
-         
 
         if (!SecretsAreEqual(provided, selectSecret(options)))
         {
@@ -32,12 +27,7 @@ internal sealed class SecretHeaderFilter(string headerName, Func<SecurityOptions
         return await next(context);
     }
 
-    /// <summary>
-    /// Comparación en tiempo constante: un "==" normal termina antes cuando encuentra
-    /// la primera letra distinta, y midiendo tiempos se podría adivinar el secreto.
-    /// Se comparan los SHA-256 para que ambos lados midan lo mismo.
-    /// </summary>
-    /// 
+    // Comparacion en tiempo constante
     private static bool SecretsAreEqual(string provided, string expected)
     {
         if (string.IsNullOrEmpty(provided) || string.IsNullOrEmpty(expected))
@@ -60,9 +50,6 @@ public static class SecurityEndpointExtensions
     public static TBuilder RequireWebhookSecret<TBuilder>(this TBuilder builder) where TBuilder : IEndpointConventionBuilder
         => builder.AddEndpointFilter(new SecretHeaderFilter(WebhookSecretHeader, o => o.WebhookSecret));
 
-    /// <summary>Red interna (Security:InternalNetworks) entra sin llave; de fuera exige X-Api-Key.</summary>
     public static TBuilder RequireInternalNetworkOrApiKey<TBuilder>(this TBuilder builder) where TBuilder : IEndpointConventionBuilder
         => builder.AddEndpointFilter(new InternalNetworkFilter(new SecretHeaderFilter(ApiKeyHeader, o => o.InternalApiKey)));
-
-
 }

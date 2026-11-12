@@ -2,14 +2,7 @@ using System.Text.Json;
 
 namespace VoicesIntegration.Infrastructure.Persistence;
 
-/// <summary>
-/// Saca campos del JSON del aviso con las MISMAS reglas que SQL Server (modo lax), para que el SP V2 guarde
-/// exactamente lo mismo que el SP 28 cuando leía el JSON en el 205:
-/// - <see cref="Valor"/> = JSON_VALUE(json, '$.campo'): texto del valor simple; NULL si no existe, si es null,
-///   si es objeto/arreglo o si el texto pasa de 4,000 caracteres. Números tal cual vienen; true/false como texto.
-/// - <see cref="Fragmento"/> = JSON_QUERY(json, '$.campo'): el objeto/arreglo tal cual viene; NULL si es valor simple.
-/// Si el nombre se repite en el JSON, se toma el PRIMERO (como SQL).
-/// </summary>
+// Lee campos del JSON igual que JSON_VALUE de SQL (modo lax)
 internal static class CamposJsonSql
 {
     private const int MaxJsonValue = 4000;
@@ -23,7 +16,7 @@ internal static class CamposJsonSql
             JsonValueKind.Number => v.GetRawText(),
             JsonValueKind.True => "true",
             JsonValueKind.False => "false",
-            _ => null,   // null, objeto, arreglo
+            _ => null,
         };
         return texto is { Length: > MaxJsonValue } ? null : texto;
     }
@@ -37,7 +30,7 @@ internal static class CamposJsonSql
         {
             foreach (var p in raiz.EnumerateObject())
             {
-                if (p.NameEquals(campo)) { valor = p.Value; return true; }   // sensible a mayúsculas, el primero
+                if (p.NameEquals(campo)) { valor = p.Value; return true; }
             }
         }
         valor = default;

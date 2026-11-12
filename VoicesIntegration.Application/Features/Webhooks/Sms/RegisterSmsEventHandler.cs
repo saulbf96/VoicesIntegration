@@ -9,13 +9,6 @@ using VoicesIntegration.Domain.Common;
 
 namespace VoicesIntegration.Application.Features.Webhooks.Sms;
 
-/// <summary>
-/// Campos mínimos de los webhooks de SMS de Voices para validar:
-/// - "Message status": message_id, status, datetime (+ batch_id, origin_identifier opcionales).
-/// - "Batch status":   type = "BATCH", batch_id, status, messages[]...
-/// - "Reply" (respuesta del cliente): event = "Reply", message_id, number, text, created_at, campaign_id (sin status).
-/// El SP de estados lee del JSON el resto de campos.
-/// </summary>
 public sealed record SmsWebhookPayload
 {
     [JsonPropertyName("type")] public string? Type { get; init; }
@@ -23,7 +16,6 @@ public sealed record SmsWebhookPayload
     [JsonPropertyName("batch_id")] public string? BatchId { get; init; }
     [JsonPropertyName("status")] public string? Status { get; init; }
 
-    // ---- Respuesta del cliente (event = "Reply") ----
     [JsonPropertyName("event")] public string? Event { get; init; }
     [JsonPropertyName("campaign_id")] public string? CampaignId { get; init; }
     [JsonPropertyName("number")] public string? Number { get; init; }
@@ -34,10 +26,7 @@ public sealed record SmsWebhookPayload
     [JsonIgnore] public bool IsReply => string.Equals(Event, "Reply", StringComparison.OrdinalIgnoreCase);
 }
 
-/// <summary>
-/// Caso de uso: guardar un aviso de SMS. Si es de un mensaje, intenta completar número y texto
-/// con GET /v1/sms/messages/{id}; si esa consulta falla, SE GUARDA IGUAL (sin detalle).
-/// </summary>
+// Guarda avisos SMS; si falla la consulta del detalle se guarda igual
 public sealed class RegisterSmsEventHandler(
     ISmsRepository repository,
     ISmsGateway gateway,
@@ -47,7 +36,6 @@ public sealed class RegisterSmsEventHandler(
     public const int MaxNumberLength = 20;
     public const int MaxReplyTextLength = 1000;
 
-    /// <returns>true si es nuevo; false si era un duplicado.</returns>
     public async Task<bool> HandleAsync(SmsWebhookPayload payload, string rawPayload, DateTimeOffset receivedAtUtc, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(payload);
@@ -64,16 +52,11 @@ public sealed class RegisterSmsEventHandler(
         return isNew;
     }
 
-    /// <summary>
-    /// Valida el aviso y (si está prendido) consulta el detalle; NO guarda. Lo usa el guardado por lotes (SP 31).
-    /// Si el dato es inválido: <see cref="DomainException"/> (el aviso va a "rechazados").
-    /// </summary>
     public async Task<SmsToSave> PrepareAsync(SmsWebhookPayload payload, string rawPayload, DateTimeOffset receivedAtUtc, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(payload);
         ArgumentNullException.ThrowIfNull(rawPayload);
 
-        // ---- Validaciones (si fallan → DomainException → el aviso va a "rechazados") ----
         if (payload.IsBatch)
         {
             if (string.IsNullOrWhiteSpace(payload.BatchId))
@@ -89,7 +72,6 @@ public sealed class RegisterSmsEventHandler(
                 throw new DomainException("Aviso SMS sin status.");
         }
 
-        // ---- Detalle (número, texto, fechas): solo para avisos de un mensaje, sin bloquear ----
         SmsMessageDetail? detail = null;
         if (!payload.IsBatch)
         {
@@ -108,10 +90,7 @@ public sealed class RegisterSmsEventHandler(
         return new SmsToSave(rawPayload, hash, receivedAtUtc, detail);
     }
 
-    /// <summary>
-    /// Respuesta del cliente a un SMS (event = "Reply"): se guarda TODO lo que conteste, tal cual (SP 41).
-    /// Solo se rechaza si no se puede ligar a nadie (sin message_id o sin número).
-    /// </summary>
+    // Respuesta del cliente (event = Reply)
     private async Task<bool> HandleReplyAsync(SmsWebhookPayload payload, string rawPayload, DateTimeOffset receivedAtUtc, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(rawPayload);
@@ -125,7 +104,6 @@ public sealed class RegisterSmsEventHandler(
         if (payload.Number.Trim().Length > MaxNumberLength)
             throw new DomainException($"El number no puede exceder {MaxNumberLength} caracteres.");
 
-        // Si la fecha viene rara NO se rechaza: se guarda sin ella (lo importante es el texto).
         DateTimeOffset? createdAt = DateTimeOffset.TryParse(payload.CreatedAt, CultureInfo.InvariantCulture,
             DateTimeStyles.AssumeUniversal, out var dt) ? dt : null;
 

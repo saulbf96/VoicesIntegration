@@ -4,7 +4,6 @@ using VoicesIntegration.Application.Abstractions.Monitoring;
 
 namespace VoicesIntegration.Infrastructure.Persistence;
 
-/// <summary>Disponibilidad de la API (minuto a minuto) y reporte de huecos con los SPs 16 y 17. Solo parámetros.</summary>
 internal sealed class MonitoringRepository(ISqlConnectionFactory connectionFactory) : IMonitoringRepository
 {
     public async Task RegisterHeartbeatAsync(string server, int pending, int rejected, CancellationToken cancellationToken)

@@ -10,44 +10,27 @@ using VoicesIntegration.Infrastructure.Inbox;
 
 namespace VoicesIntegration.Infrastructure.Monitoring;
 
-/// <summary>Sección "Alertas": cuándo avisar por correo.</summary>
 public sealed class AlertasOptions
 {
     public const string Seccion = "Alertas";
 
-    /// <summary>Horario en que normalmente corren campañas (hora de México). Fuera de él no se avisa "no llegan datos".</summary>
     public string HorarioInicio { get; init; } = "07:00";
     public string HorarioFin { get; init; } = "22:00";
 
-    /// <summary>Si a esta hora (México) no ha llegado NINGÚN aviso en el día, avisar (¿webhook apagado? ¿sin campañas?).</summary>
     public string HoraSinInicio { get; init; } = "08:30";
 
-    /// <summary>Minutos sin avisos (dentro del horario y después del primero del día) para avisar "no llegan datos".</summary>
     public int MinutosSinDatos { get; init; } = 30;
 
-    /// <summary>Minutos con avisos esperando en la bandeja (BD sin responder) para avisar.</summary>
     public int MinutosBdSinResponder { get; init; } = 5;
 
-    /// <summary>Corte de la API (sin registro de disponibilidad) que se avisa al volver a arrancar, en minutos, dentro del horario.</summary>
     public int MinutosCorteApi { get; init; } = 3;
 
-    /// <summary>Hora del resumen diario (hora de México).</summary>
     public string HoraResumen { get; init; } = "22:15";
 
-    /// <summary>Dirección de la pantalla de recuperación para ponerla en los correos (opcional).</summary>
     public string UrlRecuperar { get; init; } = string.Empty;
 }
 
-/// <summary>
-/// Vigilante: revisa cada minuto y manda correo cuando:
-/// - empieza a recibir datos en el día;
-/// - dejan de llegar datos dentro del horario (y cuando vuelven, con el rango a recuperar);
-/// - la API estuvo apagada (se avisa al volver a arrancar, con el rango exacto según los registros de disponibilidad);
-/// - la BD no responde (avisos acumulándose en la bandeja; no se pierden) y cuando se recupera;
-/// - hay avisos rechazados nuevos o poco disco;
-/// - resumen del día a la hora configurada, con los rangos a subir en /recuperar.
-/// Cada incidente se avisa UNA vez (y otra al resolverse), para no llenar el correo.
-/// </summary>
+// Revisa cada minuto y manda correo: inicio, cortes, atrasos y resumen
 internal sealed class AlertasWorker(
     IServiceScopeFactory scopeFactory,
     IWebhookInbox inbox,
@@ -62,23 +45,24 @@ internal sealed class AlertasWorker(
 
     private DateOnly _dia;
     private bool _inicioAvisado, _resumenEnviado, _discoAvisado, _sinInicioAvisado;
-    private DateTime? _sinDatosDesde;                 // hora MX del último aviso antes del hueco (incidente abierto)
+    private DateTime? _sinDatosDesde;
     private readonly List<(DateTime Desde, DateTime Hasta)> _huecosSinDatos = [];
-    private DateTime? _bdDesde;                       // incidente BD abierto
+    private DateOnly? _resumenDe;
+    private List<(DateTime Desde, DateTime Hasta)> _huecosResumen = [];
+    private DateTime? _bdDesde;
     private int _rechazadosAvisados;
     private DateTime _ultimoAvisoRechazo = DateTime.MinValue;
     private DateTime _arranqueMx;
-    private long _guardadosAnterior;
+    private readonly Queue<(DateTime Mx, long Guardados, long Recibidos)> _muestras = new();
     private DateTime _ultimoAvisoBandeja = DateTime.MinValue;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _arranqueMx = NowMx();
         _dia = DateOnly.FromDateTime(_arranqueMx);
-        _rechazadosAvisados = SafeStatus()?.Rejected ?? 0;   // no avisar rechazos viejos
+        _rechazadosAvisados = SafeStatus()?.Rejected ?? 0;
         _resumenEnviado = _arranqueMx.TimeOfDay >= Hora(options.Value.HoraResumen);
 
-        // Dar 2 minutos para que el registro de disponibilidad se registre y el reporte de huecos refleje el corte recién terminado.
         try { await Task.Delay(TimeSpan.FromMinutes(2), time, stoppingToken); } catch (OperationCanceledException) { return; }
         await RevisarArranqueAsync(stoppingToken);
 
@@ -92,7 +76,6 @@ internal sealed class AlertasWorker(
         while (await timer.WaitForNextTickAsync(stoppingToken));
     }
 
-    /// <summary>Al arrancar: ¿la API estuvo apagada justo antes? Y ¿ya había avisos hoy (para no repetir "empezó")?</summary>
     private async Task RevisarArranqueAsync(CancellationToken ct)
     {
         try
@@ -102,9 +85,8 @@ internal sealed class AlertasWorker(
             var r = await repo.GetGapReportAsync(_dia, ct);
             _inicioAvisado = r.Horas.Sum(h => h.Avisos_Blaster + h.Avisos_Sms) > 0;
 
-            // El corte que terminó cuando arrancamos (el último que acaba cerca del arranque), recortado al horario.
             var corte = r.VentanasSinServicio
-                .Where(v => v.Tipo != DowntimeWindow.TipoNoLlegaron)   // aquí solo importa si la API estuvo APAGADA
+                .Where(v => v.Tipo != DowntimeWindow.TipoNoLlegaron)
                 .Where(v => v.Hasta >= _arranqueMx.AddMinutes(-10) && v.Desde <= _arranqueMx)
                 .Select(v => Recortar(v.Desde, v.Hasta))
                 .FirstOrDefault(v => v is not null);
@@ -133,7 +115,6 @@ internal sealed class AlertasWorker(
         var ultimo = tracker.LastUtc is { } u ? ToMx(u) : (DateTime?)null;
         var ultimoHoy = ultimo is { } x && DateOnly.FromDateTime(x) == hoy ? ultimo : null;
 
-        // 1) Empezó a recibir datos hoy.
         if (!_inicioAvisado && ultimoHoy is not null)
         {
             _inicioAvisado = true;
@@ -144,7 +125,6 @@ internal sealed class AlertasWorker(
                 "Todo en orden: los resultados de las llamadas se están guardando.", ct);
         }
 
-        // 1b) Ya es tarde y en todo el día no ha llegado nada (una vez al día).
         if (!_inicioAvisado && !_sinInicioAvisado && dentroHorario && ahora.TimeOfDay >= Hora(o.HoraSinInicio))
         {
             _sinInicioAvisado = true;
@@ -157,8 +137,7 @@ internal sealed class AlertasWorker(
                 "En cuanto llegue el primer aviso te mando \"Empezó a recibir datos\".", ct);
         }
 
-        // 2) Dejaron de llegar datos (dentro del horario) / volvieron a llegar.
-        var referencia = ultimoHoy ?? (_inicioAvisado ? _arranqueMx : (DateTime?)null);   // tras reiniciar, contar desde el arranque
+        var referencia = ultimoHoy ?? (_inicioAvisado ? _arranqueMx : (DateTime?)null);
         if (_sinDatosDesde is null && dentroHorario && referencia is { } refMx && _inicioAvisado
             && (ahora - refMx).TotalMinutes >= o.MinutosSinDatos)
         {
@@ -178,33 +157,48 @@ internal sealed class AlertasWorker(
                 "Si en ese rango SÍ había campañas corriendo, faltan llamadas:\n" + Accion(desde, volvio), ct);
         }
 
-        // 3) Avisos atrasados en la bandeja (no se pierden). Dos causas posibles, con mensaje distinto:
-        //    a) la BD no responde (no baja nada);  b) llegan más rápido de lo que se alcanzan a guardar (sí se guardan, pero va atrás).
-        //    Se avisa al empezar, se recuerda cada hora mientras siga (con los números) y se avisa al terminar.
         var st = SafeStatus();
         if (st is not null)
         {
+            _muestras.Enqueue((ahora, tracker.SavedTotal, tracker.Count));
+            while (_muestras.Count > 11) _muestras.Dequeue();
+            var (guardanMin, lleganMin, minutos) = Ritmo();
+
             var viejo = st.OldestPendingUtc is { } op ? (time.GetUtcNow() - op).TotalMinutes : 0;
-            var guardados = tracker.SavedTotal - _guardadosAnterior;   // guardados en BD desde la revisión anterior (~1 min)
-            _guardadosAnterior = tracker.SavedTotal;
-            var bdParada = guardados == 0;
+            var ultimoGuardado = tracker.LastSavedUtc is { } ls ? ToMx(ls) : (DateTime?)null;
+            var sinGuardar = (ahora - (ultimoGuardado ?? _arranqueMx)).TotalMinutes;
+            var bdParada = st.Pending > 0 && sinGuardar >= o.MinutosBdSinResponder;
             var abrir = _bdDesde is null && st.Pending > 0 && viejo >= o.MinutosBdSinResponder;
             var recordar = _bdDesde is not null && st.Pending > 0 && (ahora - _ultimoAvisoBandeja).TotalMinutes >= 60;
             if (abrir || recordar)
             {
                 _bdDesde ??= ahora.AddMinutes(-viejo);
                 _ultimoAvisoBandeja = ahora;
-                var cuerpo = $"Hay {st.Pending:N0} avisos esperando en la bandeja. El más viejo llegó hace {(int)viejo} min.\n" +
-                             $"En el último minuto se guardaron {guardados:N0} en la base de datos.\n\n" +
-                             "NO se pierden: están guardados en el disco del servidor y se guardan solos.\n\n" +
-                             (bdParada
-                                 ? "La base de datos NO está guardando nada: revisa la conexión al SQL Server (10.80.5.205)."
-                                 : "La base de datos sí responde, pero llegan más avisos de los que se alcanzan a guardar. " +
-                                   "Se pondrá al día cuando bajen las campañas. Si pasa seguido, avisar a sistemas para darle más velocidad.") +
-                             (recordar ? "\n\n(Recordatorio: el problema sigue. Te aviso cada hora hasta que se resuelva.)" : "\n\nTe aviso cuando se resuelva.");
+
+                var sb = new StringBuilder();
+                sb.AppendLine($"Pendientes en la bandeja: {st.Pending:N0}");
+                if (st.OldestPendingUtc is { } op2) sb.AppendLine($"El más viejo llegó a las {ToMx(op2):HH:mm} (hace {(int)viejo} min).");
+                if (minutos > 0) sb.AppendLine($"Últimos {minutos} min: llegan {lleganMin:N0} por minuto y se guardan {guardanMin:N0} por minuto.");
+                sb.AppendLine();
+                if (bdParada)
+                    sb.AppendLine(ultimoGuardado is { } ug
+                        ? $"La base de datos no guarda nada desde las {ug:HH:mm} ({(int)sinGuardar} min). Revisa el SQL Server (10.80.5.205)."
+                        : "La base de datos no ha guardado nada desde que arrancó la API. Revisa el SQL Server (10.80.5.205).");
+                else if (minutos > 0 && guardanMin > lleganMin)
+                    sb.AppendLine($"La BD sí guarda. A este ritmo se pone al día en unos {Math.Ceiling(st.Pending / (double)(guardanMin - lleganMin)):N0} min.");
+                else if (minutos > 0)
+                    sb.AppendLine("La BD sí guarda, pero llegan más avisos de los que se guardan: la bandeja sigue creciendo.");
+                if (tracker.LastError is { } err && tracker.LastErrorUtc is { } eu && (time.GetUtcNow() - eu).TotalMinutes <= 60)
+                    sb.AppendLine($"Último error de la BD ({ToMx(eu):HH:mm}): {Corto(err)}");
+                sb.AppendLine();
+                sb.AppendLine("No se pierde nada: los avisos están en el disco del servidor y se guardan solos.");
+                sb.AppendLine(recordar ? "Recordatorio: el problema sigue. Te aviso cada hora hasta que se resuelva." : "Te aviso cuando se resuelva.");
+
                 await notificador.EnviarAsync(bdParada
-                        ? "La base de datos NO responde: avisos en espera"
-                        : $"Avisos atrasados: {st.Pending:N0} en espera de guardarse", cuerpo, ct);
+                        ? $"La BD no guarda desde las {(ultimoGuardado ?? _arranqueMx):HH:mm}: {st.Pending:N0} pendientes"
+                        : minutos > 0
+                            ? $"Avisos atrasados: {st.Pending:N0} pendientes (se guardan {guardanMin:N0} por minuto)"
+                            : $"Avisos atrasados: {st.Pending:N0} pendientes", sb.ToString(), ct);
             }
             else if (_bdDesde is { } bd && st.Pending == 0)
             {
@@ -213,18 +207,20 @@ internal sealed class AlertasWorker(
                     $"Los avisos en espera desde las {bd:HH:mm} ya se guardaron en la base de datos. No se perdió nada y no hay que recuperar nada.", ct);
             }
 
-            // 4) Avisos rechazados nuevos (máximo un correo por hora).
+            // Si se reprocesaron o borraron rechazados, se cuenta desde lo que hay ahora
+            if (st.Rejected < _rechazadosAvisados) _rechazadosAvisados = st.Rejected;
             if (st.Rejected > _rechazadosAvisados && (ahora - _ultimoAvisoRechazo).TotalMinutes >= 60)
             {
                 var nuevos = st.Rejected - _rechazadosAvisados;
                 _rechazadosAvisados = st.Rejected;
                 _ultimoAvisoRechazo = ahora;
+                var carpeta = Path.Combine(inboxOptions.Value.Path, "rejected");
                 await notificador.EnviarAsync($"{nuevos:N0} avisos rechazados",
-                    $"Llegaron {nuevos:N0} avisos que no se pudieron guardar (formato inválido). Total en espera de revisión: {st.Rejected:N0}.\n" +
-                    $"Están en {inboxOptions.Value.Path}\\rejected, cada uno con su archivo .motivo.txt.", ct);
+                    $"Llegaron {nuevos:N0} avisos que no se pudieron guardar. Total por revisar: {st.Rejected:N0}.\n\n" +
+                    MotivosRechazo(carpeta) +
+                    $"\nEstán en {carpeta}, cada uno con su archivo .motivo.txt.", ct);
             }
 
-            // 5) Poco disco (una vez al día).
             if (!_discoAvisado && st.FreeDiskMb is { } mb && mb < inboxOptions.Value.MinFreeDiskMb)
             {
                 _discoAvisado = true;
@@ -234,15 +230,26 @@ internal sealed class AlertasWorker(
             }
         }
 
-        // 6) Resumen del día.
+        // Despues de HoraResumen se espera a que la bandeja quede en 0 (limite: inicio del horario del dia siguiente)
         if (!_resumenEnviado && ahora.TimeOfDay >= Hora(o.HoraResumen))
         {
             _resumenEnviado = true;
-            await EnviarResumenAsync(hoy, ahora, ct);
+            _resumenDe = hoy;
+            _huecosResumen = _huecosSinDatos.ToList();
+            if (_sinDatosDesde is { } abierto) _huecosResumen.Add((abierto, ahora));
+        }
+        if (_resumenDe is { } dr)
+        {
+            var limite = dr.AddDays(1).ToDateTime(TimeOnly.FromTimeSpan(Hora(o.HorarioInicio)));
+            if (st is not null && (st.Pending == 0 || ahora >= limite))
+            {
+                _resumenDe = null;
+                await EnviarResumenAsync(dr, ahora, _huecosResumen, st.Pending, ct);
+            }
         }
     }
 
-    private async Task EnviarResumenAsync(DateOnly dia, DateTime ahora, CancellationToken ct)
+    private async Task EnviarResumenAsync(DateOnly dia, DateTime ahora, List<(DateTime Desde, DateTime Hasta)> huecos, int pendientes, CancellationToken ct)
     {
         await using var scope = scopeFactory.CreateAsyncScope();
         var repo = scope.ServiceProvider.GetRequiredService<IMonitoringRepository>();
@@ -253,14 +260,14 @@ internal sealed class AlertasWorker(
 
         var cortes = r.VentanasSinServicio.Select(v => Recortar(v.Desde, v.Hasta)).Where(v => v is not null).Select(v => v!.Value)
             .Where(v => (v.Hasta - v.Desde).TotalMinutes >= options.Value.MinutosCorteApi).ToList();
-        var huecos = _huecosSinDatos.ToList();
-        if (_sinDatosDesde is { } abierto) huecos.Add((abierto, ahora));
 
         var sb = new StringBuilder();
         sb.AppendLine($"Resumen del {dia:dd/MM/yyyy} — API de Voices en {Environment.MachineName} (corte a las {ahora:HH:mm}).");
+        sb.AppendLine(pendientes == 0
+            ? "Se mandó al terminar de guardar todo lo de la bandeja."
+            : $"Quedaron {pendientes:N0} avisos sin guardar: este resumen está incompleto.");
         sb.AppendLine();
         sb.AppendLine($"Avisos recibidos: Blaster {blaster:N0} · SMS {sms:N0}");
-        // "Hora" viene como "07:00 - 07:59"
         if (conAvisos.Count > 0)
             sb.AppendLine($"Llegaron datos entre las {conAvisos.First().Split(' ')[0]} y las {conAvisos.Last().Split(' ')[^1]}.");
         var st = SafeStatus();
@@ -287,7 +294,9 @@ internal sealed class AlertasWorker(
             sb.AppendLine(Accion(null, null));
         }
 
-        await notificador.EnviarAsync(cortes.Count == 0 && huecos.Count == 0
+        await notificador.EnviarAsync(pendientes > 0
+            ? $"Resumen del día {dia:dd/MM}: INCOMPLETO ({pendientes:N0} avisos sin guardar)"
+            : cortes.Count == 0 && huecos.Count == 0
             ? $"Resumen del día {dia:dd/MM}: sin cortes"
             : $"Resumen del día {dia:dd/MM} — HAY QUE RECUPERAR {cortes.Count + huecos.Count} rango(s)", sb.ToString(), ct);
     }
@@ -311,7 +320,7 @@ internal sealed class AlertasWorker(
         _huecosSinDatos.Clear();
     }
 
-    /// <summary>Recorta un corte al horario de campañas del mismo día; null si queda fuera.</summary>
+    // Recorta el corte al horario de campanas
     private (DateTime Desde, DateTime Hasta)? Recortar(DateTime desde, DateTime hasta)
     {
         var ini = desde.Date + Hora(options.Value.HorarioInicio);
@@ -319,6 +328,45 @@ internal sealed class AlertasWorker(
         var d = desde < ini ? ini : desde;
         var h = hasta > fin ? fin : hasta;
         return h > d ? (d, h) : null;
+    }
+
+    // Promedio por minuto en las ultimas muestras (hasta 10 min)
+    private (long Guardan, long Llegan, int Minutos) Ritmo()
+    {
+        if (_muestras.Count < 2) return (0, 0, 0);
+        var a = _muestras.Peek();
+        var b = _muestras.Last();
+        var min = (b.Mx - a.Mx).TotalMinutes;
+        if (min < 1) return (0, 0, 0);
+        return ((long)((b.Guardados - a.Guardados) / min), (long)((b.Recibidos - a.Recibidos) / min), (int)Math.Round(min));
+    }
+
+    // Motivos de los rechazados agrupados (los 5 mas comunes)
+    private static string MotivosRechazo(string carpeta)
+    {
+        try
+        {
+            var grupos = Directory.EnumerateFiles(carpeta, "*.motivo.txt")
+                .Select(f => Corto(File.ReadAllText(f)))
+                .GroupBy(m => m)
+                .OrderByDescending(g => g.Count())
+                .Take(5)
+                .ToList();
+            if (grupos.Count == 0) return string.Empty;
+            var sb = new StringBuilder("Motivos:\n");
+            foreach (var g in grupos) sb.AppendLine($"   - {g.Count():N0} x {g.Key}");
+            return sb.ToString();
+        }
+        catch (Exception)
+        {
+            return string.Empty;
+        }
+    }
+
+    private static string Corto(string texto)
+    {
+        var linea = texto.Trim().Split('\n')[0].Trim();
+        return linea.Length > 200 ? linea[..200] + "..." : linea;
     }
 
     private InboxStatus? SafeStatus()
