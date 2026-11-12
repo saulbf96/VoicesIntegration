@@ -4,10 +4,6 @@ using VoicesIntegration.Application.Abstractions.Notifications;
 
 namespace VoicesIntegration.Api.Endpoints;
 
-/// <summary>
-/// Diagnóstico. POST /api/diagnostico/correo-prueba manda un correo de prueba con la configuración "Correo"
-/// y responde si salió o el motivo exacto del error (sin contraseñas). Solo red interna (o X-Api-Key).
-/// </summary>
 public static class DiagnosticoEndpoints
 {
     public static IEndpointRouteBuilder MapDiagnosticoEndpoints(this IEndpointRouteBuilder app)
@@ -21,7 +17,7 @@ public static class DiagnosticoEndpoints
             })
             .RequireInternalNetworkOrApiKey();
 
-        // GET /api/diagnostico/bd: ¿el freno al guardar es la RED o el SERVIDOR de BD? (~1 minuto, no deja nada en la BD)
+        // Mide red vs servidor de BD (tarda ~1 min)
         app.MapGet("/api/diagnostico/bd", async (IDiagnosticoBd diag, CancellationToken ct) => Results.Ok(await diag.MedirAsync(ct)))
             .RequireInternalNetworkOrApiKey();
 

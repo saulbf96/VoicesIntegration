@@ -32,7 +32,7 @@ public class RegisterSmsEventHandlerTests
 
         await h.HandleAsync(new SmsWebhookPayload { MessageId = "S1", Status = "FAILED" }, "{}", Now, CancellationToken.None);
 
-        Assert.Null(Assert.Single(repo.Guardados).Detalle);   // NO se perdió el aviso
+        Assert.Null(Assert.Single(repo.Guardados).Detalle);
     }
 
     [Fact]
@@ -49,9 +49,9 @@ public class RegisterSmsEventHandlerTests
     }
 
     [Theory]
-    [InlineData(null, "SENT", null)]   // mensaje sin message_id
-    [InlineData("S1", null, null)]     // mensaje sin status
-    [InlineData(null, "COMPLETED", "BATCH")]   // lote sin batch_id
+    [InlineData(null, "SENT", null)]
+    [InlineData("S1", null, null)]
+    [InlineData(null, "COMPLETED", "BATCH")]
     public async Task DatosIncompletos_LanzaDomainException_YNoGuarda(string? id, string? status, string? type)
     {
         var repo = new FakeRepo();
@@ -66,7 +66,7 @@ public class RegisterSmsEventHandlerTests
     [Theory]
     [InlineData("NEGOCIAR")]
     [InlineData("No molestar")]
-    [InlineData("")]          // aunque venga vacío, se guarda
+    [InlineData("")]
     [InlineData(null)]
     public async Task Respuesta_SeGuardaTalCual_SinConsultarAVoices(string? texto)
     {
@@ -86,7 +86,7 @@ public class RegisterSmsEventHandlerTests
         Assert.Equal(texto, r.Text);
         Assert.Equal("5500000000", r.Number);
         Assert.Equal(new DateTimeOffset(2026, 11, 11, 17, 29, 0, 727, TimeSpan.Zero), r.CreatedAtUtc);
-        Assert.Empty(repo.Guardados);   // no va a la tabla de estados
+        Assert.Empty(repo.Guardados);
         Assert.Equal(0, gw.Consultas);
     }
 
@@ -115,8 +115,8 @@ public class RegisterSmsEventHandlerTests
     }
 
     [Theory]
-    [InlineData(null, "5500000000")]   // sin message_id
-    [InlineData("M1", null)]           // sin número
+    [InlineData(null, "5500000000")]
+    [InlineData("M1", null)]
     [InlineData("M1", "   ")]
     public async Task Respuesta_SinComoLigarla_SeRechaza(string? id, string? numero)
     {

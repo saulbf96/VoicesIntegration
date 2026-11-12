@@ -8,11 +8,6 @@ using Xunit.Abstractions;
 
 namespace VoicesIntegration.Tests.Infrastructure;
 
-/// <summary>
-/// BD real (solo con VOICES_MEDICION_BD; scripts 40/41 corridos): una respuesta de cliente (event = Reply)
-/// pasa por el handler y el SP 41, se guarda tal cual en hora México, y su reenvío exacto es duplicado.
-/// Usa message_id RSP-... y lo borra al final.
-/// </summary>
 public sealed class SpRespuestasSmsTests(ITestOutputHelper output)
 {
     private sealed class SinGateway : ISmsGateway
@@ -28,7 +23,6 @@ public sealed class SpRespuestasSmsTests(ITestOutputHelper output)
         if (string.IsNullOrWhiteSpace(cs)) { output.WriteLine("Sin VOICES_MEDICION_BD: no se prueba."); return; }
 
         var id = "RSP-" + Guid.NewGuid().ToString("N");
-        // Misma forma que mandó Voices el 11/11/2026.
         var raw = $$"""{"number":"5500000000","message_id":"{{id}}","created_at":"2026-11-11T17:29:00.727Z","event":"Reply","campaign_id":"6af4a58fe40c267803a6684a","text":"Negociar ñ \"comillas\""}""";
         var payload = JsonSerializer.Deserialize<SmsWebhookPayload>(raw)!;
         var h = new RegisterSmsEventHandler(new SmsRepository(new SqlConnectionFactory(cs)), new SinGateway(),

@@ -13,7 +13,7 @@ namespace VoicesIntegration.Tests.Application;
 public class WebhookInboxProcessorTests
 {
     private const string Valido = """{"identifier":"A1","status":"SENT","call_type":"initial","sip_code":200}""";
-    private const string EstadoRaro = """{"identifier":"A2"}""";   // sin status: sí se rechaza
+    private const string EstadoRaro = """{"identifier":"A2"}""";
 
     [Fact]
     public async Task AvisoValido_SeGuardaYSaleDeLaBandeja()
@@ -46,15 +46,15 @@ public class WebhookInboxProcessorTests
     {
         var (processor, inbox, repo) = Crear();
         inbox.Agregar(Valido);
-        repo.Falla = true;   // simula SQL caído
+        repo.Falla = true;
 
         var r1 = await processor.ProcessPendingAsync(100, 2, CancellationToken.None);
 
         Assert.True(r1.TransientFailure);
-        Assert.Single(inbox.Pendientes);   // ¡NO se perdió!
+        Assert.Single(inbox.Pendientes);
         Assert.Empty(repo.Saved);
 
-        repo.Falla = false;  // vuelve la BD
+        repo.Falla = false;
         var r2 = await processor.ProcessPendingAsync(100, 2, CancellationToken.None);
 
         Assert.Equal(1, r2.Processed);
@@ -68,11 +68,11 @@ public class WebhookInboxProcessorTests
         var (processor, inbox, repo) = Crear();
         for (var i = 1; i <= 25; i++)
             inbox.Agregar($$"""{"identifier":"L{{i}}","status":"SENT","call_type":"initial","sip_code":200}""");
-        inbox.Agregar("""{"identifier":"L1","status":"SENT","call_type":"initial","sip_code":200}""");   // reenvío exacto
+        inbox.Agregar("""{"identifier":"L1","status":"SENT","call_type":"initial","sip_code":200}""");
 
         var r = await processor.ProcessPendingAsync(100, 4, CancellationToken.None);
 
-        Assert.Equal(1, repo.LotesGuardados);   // UNA llamada a la BD, no 26
+        Assert.Equal(1, repo.LotesGuardados);
         Assert.Equal(25, r.Processed);
         Assert.Equal(1, r.Duplicates);
         Assert.Empty(inbox.Pendientes);
@@ -82,7 +82,7 @@ public class WebhookInboxProcessorTests
     public async Task LoteRechazadoPorLaBd_SeGuardanUnoPorUno()
     {
         var (processor, inbox, repo) = Crear();
-        repo.RechazaLotes = true;   // ej. aún no se corre el script 28 en la BD
+        repo.RechazaLotes = true;
         inbox.Agregar(Valido);
         inbox.Agregar("""{"identifier":"A9","status":"FAILED","call_type":"initial","sip_code":480}""");
 
@@ -119,8 +119,8 @@ public class WebhookInboxProcessorTests
         var r1 = await processor.ProcessPendingAsync(100, 1, CancellationToken.None);
 
         Assert.True(r1.Busy);
-        Assert.False(r1.TransientFailure);   // la BD está bien: no se espera ni se dice "BD no respondió"
-        Assert.Single(inbox.Pendientes);     // el aviso NO se perdió
+        Assert.False(r1.TransientFailure);
+        Assert.Single(inbox.Pendientes);
 
         var r2 = await processor.ProcessPendingAsync(100, 1, CancellationToken.None);
 
@@ -157,7 +157,7 @@ public class WebhookInboxProcessorTests
 
         Assert.Equal(1, r.Processed);
         Assert.Equal(antes + 1, Sms.Total);
-        Assert.Empty(repo.Saved);   // no se fue a Blaster
+        Assert.Empty(repo.Saved);
     }
 
     [Fact]
@@ -166,7 +166,6 @@ public class WebhookInboxProcessorTests
         var (processor, inbox, repo) = Crear();
         var antes = Sms.Respuestas;
         var antesEstados = Sms.Total;
-        // Forma real de Voices (11/11/2026): sin status, con event = Reply.
         inbox.Agregar("""{"number":"5500000000","message_id":"18dd19da-567f-4b55-8ece-82b46554b806","created_at":"2026-11-11T17:29:00.727Z","event":"Reply","campaign_id":"6af4a58fe40c267803a6684a","text":"NEGOCIAR"}""", WebhookChannels.Sms);
 
         var r = await processor.ProcessPendingAsync(100, 1, CancellationToken.None);
@@ -174,7 +173,7 @@ public class WebhookInboxProcessorTests
         Assert.Equal(1, r.Processed);
         Assert.Equal(0, r.Rejected);
         Assert.Equal(antes + 1, Sms.Respuestas);
-        Assert.Equal(antesEstados, Sms.Total);   // no se fue a la tabla de estados
+        Assert.Equal(antesEstados, Sms.Total);
         Assert.Empty(inbox.Pendientes);
     }
 
@@ -235,7 +234,6 @@ public class WebhookInboxProcessorTests
         public Task SaveAsync(string channel, string rawPayload, DateTimeOffset receivedAtUtc, CancellationToken ct) { Agregar(rawPayload, channel); return Task.CompletedTask; }
         public Task SaveRejectedAsync(string channel, string rawPayload, DateTimeOffset receivedAtUtc, string reason, CancellationToken ct) { Rechazados[Guid.NewGuid().ToString()] = reason; return Task.CompletedTask; }
         public IReadOnlyList<InboxItem> GetPending(int max) => Pendientes.Keys.Order().Take(max).Select(k => new InboxItem(k, Canal[k], DateTimeOffset.UtcNow)).ToList();
-        /// <summary>Simula el antivirus: las primeras N lecturas fallan con "archivo en uso".</summary>
         public int LecturasOcupadas { get; set; }
 
         public Task<string> ReadAsync(InboxItem item, CancellationToken ct)
@@ -272,7 +270,6 @@ public class WebhookInboxProcessorTests
         }
 
         public int LotesGuardados { get; private set; }
-        /// <summary>Simula que la BD rechaza el lote por un dato (o falta el SP): el procesador debe guardar uno por uno.</summary>
         public bool RechazaLotes { get; set; }
 
         public async Task<IReadOnlyList<bool>> RegisterCallResultsBatchAsync(IReadOnlyList<CallEventToSave> events, CancellationToken ct)

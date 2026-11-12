@@ -5,7 +5,6 @@ using VoicesIntegration.Application.Abstractions.Sms;
 
 namespace VoicesIntegration.Infrastructure.Persistence;
 
-/// <summary>Guarda los avisos SMS con el SP dbo.USP_GUARDAR_SMS_VOICES (script 14). Solo parámetros.</summary>
 internal sealed class SmsRepository(ISqlConnectionFactory connectionFactory) : ISmsRepository
 {
     private const string Procedure = "dbo.USP_GUARDAR_SMS_VOICES";
@@ -27,7 +26,6 @@ internal sealed class SmsRepository(ISqlConnectionFactory connectionFactory) : I
         p.Add("@DetalleObtenido", detail is not null, DbType.Boolean);
         p.Add("@IsDuplicate", dbType: DbType.Boolean, direction: ParameterDirection.Output);
 
-
         await using var connection = connectionFactory.Create();
         await connection.ExecuteAsync(new CommandDefinition(Procedure, p,
             commandType: CommandType.StoredProcedure, commandTimeout: CommandTimeoutSeconds, cancellationToken: cancellationToken));
@@ -37,7 +35,6 @@ internal sealed class SmsRepository(ISqlConnectionFactory connectionFactory) : I
 
     private static string? Truncate(string? v, int max) => v is null || v.Length <= max ? v : v[..max];
 
-    // ---- Respuestas del cliente (scripts 40/41) ----
     private const string ReplyProcedure = "dbo.USP_GUARDAR_RESPUESTA_SMS_VOICES";
 
     public async Task<bool> RegisterReplyAsync(SmsReplyToSave reply, CancellationToken cancellationToken)
@@ -59,18 +56,16 @@ internal sealed class SmsRepository(ISqlConnectionFactory connectionFactory) : I
         return !p.Get<bool>("@IsDuplicate");
     }
 
-    // ---- Por lotes (script 31): 1 transacción por lote en vez de 1 por SMS ----
     private const string BatchProcedure = "dbo.USP_GUARDAR_SMS_LOTE_VOICES";
     private const string BatchTableType = "dbo.TT_AVISOS_SMS_VOICES";
     private const int BatchTimeoutSeconds = 120;
 
-    // Errores por DATO (o porque el SP/tipo aún no existe): el lote se guarda uno por uno con el SP 9.
     private static readonly HashSet<int> DataErrors =
     [
-        2812, 2715,             // falta correr el script 31
-        8152, 2628,             // texto demasiado largo
-        245, 241, 8114, 8115,   // conversión de tipo
-        515, 547, 2601, 2627,   // NULL, restricción, llave repetida
+        2812, 2715,
+        8152, 2628,
+        245, 241, 8114, 8115,
+        515, 547, 2601, 2627,
     ];
 
     public async Task<IReadOnlyList<bool>> RegisterBatchAsync(IReadOnlyList<SmsToSave> items, CancellationToken cancellationToken)
@@ -91,7 +86,6 @@ internal sealed class SmsRepository(ISqlConnectionFactory connectionFactory) : I
             }
             catch (Microsoft.Data.SqlClient.SqlException ex) when (ex.Number == 1205 && intento < 4)
             {
-                // Bloqueo mutuo con otra escritura: SQL deshizo TODO el lote; se reintenta (no se duplica nada).
                 await Task.Delay(TimeSpan.FromMilliseconds(300 * intento), cancellationToken);
             }
             catch (Microsoft.Data.SqlClient.SqlException ex) when (DataErrors.Contains(ex.Number))
@@ -101,7 +95,7 @@ internal sealed class SmsRepository(ISqlConnectionFactory connectionFactory) : I
         }
     }
 
-    /// <summary>Lote para el SP 31 (columnas en el MISMO orden que dbo.TT_AVISOS_SMS_VOICES).</summary>
+    // Mismo orden de columnas que TT_AVISOS_SMS_VOICES
     internal static DataTable BuildBatchTable(IReadOnlyList<SmsToSave> items)
     {
         var t = new DataTable();

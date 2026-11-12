@@ -8,27 +8,7 @@ using VoicesIntegration.Application.Abstractions.Inbox;
 
 namespace VoicesIntegration.Infrastructure.Inbox;
 
-/// <summary>
-/// Bandeja de entrada por SEGMENTOS (2026-11-07). Antes se creaba UN ARCHIVO POR AVISO (~1 millón al día en una
-/// carpeta): con cientos de miles acumulados el disco se saturaba, el webhook tardaba segundos en contestar, el
-/// túnel rechazaba con 429 y leer/borrar 2,000 archivos llegó a tardar 5 minutos.
-///
-/// Ahora:
-///   inbox\segments\open\   → segmento ABIERTO: un archivo .jsonl, UNA LÍNEA por aviso (se agrega al final).
-///   inbox\segments\ready\  → segmento CERRADO (cada <see cref="InboxOptions.SegmentMaxItems"/> avisos o
-///                            <see cref="InboxOptions.SegmentMaxSeconds"/> s): listo para pasarse a la BD.
-///   inbox\rejected\        → avisos inválidos + .motivo.txt (igual que antes).
-///
-/// Durabilidad: un solo escritor junta los avisos que llegan al mismo tiempo, los escribe y hace UN fsync por grupo
-/// ("group commit"); solo entonces el webhook contesta 200. Así es igual de seguro que antes pero con ~1,000 veces
-/// menos operaciones de disco.
-///
-/// Un segmento se borra solo cuando TODOS sus avisos se guardaron o se rechazaron. Si la API se cae a la mitad,
-/// el segmento se vuelve a procesar completo (sin duplicar: la BD ignora lo que ya tiene).
-///
-/// Los avisos de la bandeja VIEJA (un archivo por aviso en inbox\pending) se procesan PRIMERO, en orden, hasta
-/// que se acaben; los nuevos ya solo entran por segmentos.
-/// </summary>
+// Bandeja por segmentos: varios avisos por archivo en vez de uno por archivo
 internal sealed class SegmentedWebhookInbox : IWebhookInbox, IAsyncDisposable, IDisposable
 {
     private static readonly UTF8Encoding Utf8 = new(encoderShouldEmitUTF8Identifier: false);
@@ -44,11 +24,10 @@ internal sealed class SegmentedWebhookInbox : IWebhookInbox, IAsyncDisposable, I
     private readonly Task _writer;
     private readonly SemaphoreSlim _signal = new(0);
     private readonly object _sync = new();
-    private readonly List<Segment> _loaded = [];     // segmentos leídos a memoria, en orden
+    private readonly List<Segment> _loaded = [];
     private long _seq;
-    private volatile int _openCount;                  // avisos en el segmento abierto (aún no listos)
+    private volatile int _openCount;
 
-    // Bandeja vieja: se cuenta UNA vez en segundo plano y luego se descuenta al completar.
     private int _legacyPending;
     private volatile bool _legacyDone;
     private DateTimeOffset? _legacyOldest;
@@ -65,7 +44,6 @@ internal sealed class SegmentedWebhookInbox : IWebhookInbox, IAsyncDisposable, I
         _ready = Directory.CreateDirectory(Path.Combine(o.Path, "segments", "ready")).FullName;
         _rejected = Directory.CreateDirectory(Path.Combine(o.Path, "rejected")).FullName;
 
-        // Segmentos que quedaron abiertos porque la API se apagó de golpe: pasan a "listos" (lo escrito vale).
         foreach (var f in Directory.EnumerateFiles(_open, "*" + Ext))
         {
             var lines = CountCompleteLines(f);
@@ -76,8 +54,6 @@ internal sealed class SegmentedWebhookInbox : IWebhookInbox, IAsyncDisposable, I
         _writer = Task.Run(WriterLoopAsync);
     }
 
-    // ===================== Escritura (webhook) =====================
-
     public async Task SaveAsync(string channel, string rawPayload, DateTimeOffset receivedAtUtc, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(channel) || !channel.All(char.IsAsciiLetterLower))
@@ -86,7 +62,7 @@ internal sealed class SegmentedWebhookInbox : IWebhookInbox, IAsyncDisposable, I
         var entry = new Entry(channel, rawPayload, receivedAtUtc, new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
         if (!_queue.Writer.TryWrite(entry))
             throw new InvalidOperationException("La bandeja se está cerrando.");
-        await entry.Done.Task.WaitAsync(cancellationToken);   // regresa cuando ya está en disco (fsync)
+        await entry.Done.Task.WaitAsync(cancellationToken);
     }
 
     public Task SaveRejectedAsync(string channel, string rawPayload, DateTimeOffset receivedAtUtc, string reason, CancellationToken cancellationToken) =>
@@ -109,12 +85,11 @@ internal sealed class SegmentedWebhookInbox : IWebhookInbox, IAsyncDisposable, I
             File.Move(openPath!, Path.Combine(_ready, ReadyName(Path.GetFileNameWithoutExtension(openPath!), count)));
             count = 0;
             _openCount = 0;
-            _signal.Release();   // despierta al procesador
+            _signal.Release();
         }
 
         while (true)
         {
-            // Esperar avisos; si hay un segmento abierto, a lo más hasta que le toque cerrarse.
             var hayMas = true;
             if (!_queue.Reader.TryPeek(out _))
             {
@@ -125,7 +100,7 @@ internal sealed class SegmentedWebhookInbox : IWebhookInbox, IAsyncDisposable, I
                     cts.CancelAfter(restante > TimeSpan.Zero ? restante : TimeSpan.Zero);
                 }
                 try { hayMas = await _queue.Reader.WaitToReadAsync(cts.Token); }
-                catch (OperationCanceledException) { /* tocó cerrar el segmento */ }
+                catch (OperationCanceledException) { }
             }
 
             batch.Clear();
@@ -146,14 +121,13 @@ internal sealed class SegmentedWebhookInbox : IWebhookInbox, IAsyncDisposable, I
                     buffer.SetLength(0);
                     foreach (var e in batch) WriteLine(buffer, e);
                     fs.Write(buffer.GetBuffer(), 0, (int)buffer.Length);
-                    fs.Flush(flushToDisk: true);          // UN fsync para todo el grupo
+                    fs.Flush(flushToDisk: true);
                     count += batch.Count;
                     _openCount = count;
                     foreach (var e in batch) e.Done.TrySetResult();
                 }
                 catch (Exception ex)
                 {
-                    // No se pudo escribir: esos webhooks reciben error y Voices los reintenta. Lo escrito antes se conserva.
                     foreach (var e in batch) e.Done.TrySetException(ex);
                     _logger.LogError(ex, "No se pudo escribir en la bandeja ({Count} avisos); Voices los reintentará.", batch.Count);
                     try { Rotate(); } catch (Exception ex2) { _logger.LogError(ex2, "No se pudo cerrar el segmento"); fs = null; }
@@ -169,7 +143,7 @@ internal sealed class SegmentedWebhookInbox : IWebhookInbox, IAsyncDisposable, I
             if (!hayMas && !_queue.Reader.TryPeek(out _))
             {
                 try { Rotate(); } catch (Exception ex) { _logger.LogError(ex, "No se pudo cerrar el último segmento"); }
-                return;   // se está apagando la API
+                return;
             }
         }
     }
@@ -181,17 +155,14 @@ internal sealed class SegmentedWebhookInbox : IWebhookInbox, IAsyncDisposable, I
             w.WriteStartObject();
             w.WriteString("c", e.Channel);
             w.WriteNumber("t", e.ReceivedAtUtc.UtcTicks);
-            w.WriteString("p", e.Raw);   // el JSON original tal cual (la huella se calcula sobre este texto)
+            w.WriteString("p", e.Raw);
             w.WriteEndObject();
         }
         ms.WriteByte((byte)'\n');
     }
 
-    // ===================== Lectura (procesador) =====================
-
     public IReadOnlyList<InboxItem> GetPending(int max)
     {
-        // 1) Primero lo que quedó de la bandeja vieja (más antiguo).
         if (!_legacyDone)
         {
             var viejos = _legacy.GetPending(max);
@@ -205,7 +176,6 @@ internal sealed class SegmentedWebhookInbox : IWebhookInbox, IAsyncDisposable, I
             _logger.LogInformation("La bandeja vieja (un archivo por aviso) quedó vacía; ya todo entra por segmentos.");
         }
 
-        // 2) Segmentos listos, en orden.
         lock (_sync)
         {
             var result = new List<InboxItem>(max);
@@ -309,8 +279,6 @@ internal sealed class SegmentedWebhookInbox : IWebhookInbox, IAsyncDisposable, I
         while (_signal.CurrentCount > 0) _signal.Wait(0);
     }
 
-    // ===================== Apagado =====================
-
     public async ValueTask DisposeAsync()
     {
         _queue.Writer.TryComplete();
@@ -319,8 +287,6 @@ internal sealed class SegmentedWebhookInbox : IWebhookInbox, IAsyncDisposable, I
     }
 
     public void Dispose() => DisposeAsync().AsTask().GetAwaiter().GetResult();
-
-    // ===================== Ayudantes =====================
 
     private sealed record Entry(string Channel, string Raw, DateTimeOffset ReceivedAtUtc, TaskCompletionSource Done);
 
@@ -382,9 +348,7 @@ internal sealed class SegmentedWebhookInbox : IWebhookInbox, IAsyncDisposable, I
             }
             catch (Exception ex) when (ex is JsonException or KeyNotFoundException or InvalidOperationException)
             {
-                // Última línea a medias = se cortó la luz mientras se escribía: ese webhook NO recibió 200 y Voices lo reintenta.
                 if (n == lines.Length - 1) { _logger.LogWarning("Segmento {File}: última línea incompleta (se ignora).", fileName); continue; }
-                // Línea dañada en medio: se manda a rechazados para revisarla (canal "corrupto" → se rechaza al procesar).
                 items.Add(new InboxItem($"{fileName}#{items.Count}", "corrupto", DateTimeOffset.UtcNow));
                 raws.Add(line);
             }

@@ -9,16 +9,10 @@ using Xunit.Abstractions;
 
 namespace VoicesIntegration.Tests.Infrastructure;
 
-/// <summary>
-/// EQUIVALENCIA (BD real, solo si existe VOICES_MEDICION_BD): los MISMOS avisos por el SP 28 (lee el JSON en SQL)
-/// y por el SP V2 (la API separa el JSON) deben dejar EXACTAMENTE las mismas filas en llamadas y eventos,
-/// y marcar los mismos duplicados. Usa identifiers EQA-/EQB- y los borra al final.
-/// </summary>
 public sealed class SpLoteV2EquivalenciaTests(ITestOutputHelper output)
 {
     private static readonly DateTimeOffset T0 = new(2026, 11, 8, 16, 0, 0, TimeSpan.Zero);
 
-    // Lotes de avisos (texto JSON con {ID} = identifier) y el segundo en que llegó cada uno.
     private static readonly (string Json, int Seg)[][] Lotes =
     [
         [
@@ -45,9 +39,9 @@ public sealed class SpLoteV2EquivalenciaTests(ITestOutputHelper output)
 
     private static string Texto(string json, string prefijo) => json
         .Replace("{ID}", prefijo)
-        .Replace("MSG_LARGO", new string('m', 4100))          // > 4,000: JSON_VALUE devuelve NULL
-        .Replace("NOMBRE_LARGO", new string('n', 350))        // se recorta a 300
-        .Replace("AUDIO_LARGO", new string('a', 450));        // se recorta a 400
+        .Replace("MSG_LARGO", new string('m', 4100))
+        .Replace("NOMBRE_LARGO", new string('n', 350))
+        .Replace("AUDIO_LARGO", new string('a', 450));
 
     [Fact]
     public async Task MismosAvisos_SpViejoYSpV2_DejanLasMismasFilas()
@@ -69,7 +63,7 @@ public sealed class SpLoteV2EquivalenciaTests(ITestOutputHelper output)
                 dupB.AddRange((await repo.RegisterCallResultsBatchAsync(b, CancellationToken.None)).Select(n => !n));
             }
 
-            Assert.Equal(dupA, dupB);   // mismos duplicados
+            Assert.Equal(dupA, dupB);
 
             var llamadas = await Diferencias(cs, """
                 SELECT REPLACE([identifier], '{P}', '') AS ID, [campaign_id], [campaign_name], [channel], [phone_number], [type],
@@ -99,7 +93,6 @@ public sealed class SpLoteV2EquivalenciaTests(ITestOutputHelper output)
     private static CallEventToSave Preparar(string json, int seg) =>
         RegisterCallResultHandler.Prepare(JsonSerializer.Deserialize<CallResultPayload>(json)!, json, T0.AddSeconds(seg));
 
-    /// <summary>El camino ANTERIOR: SP 28 con el JSON completo (copia del código que usaba la API).</summary>
     private static async Task<IReadOnlyList<bool>> GuardarConSpViejo(string cs, IReadOnlyList<CallEventToSave> events)
     {
         var t = new DataTable();
@@ -133,7 +126,6 @@ public sealed class SpLoteV2EquivalenciaTests(ITestOutputHelper output)
         return dup;
     }
 
-    /// <summary>Cuenta filas que están en uno y no en el otro (A EXCEPT B + B EXCEPT A).</summary>
     private static async Task<(int Filas, int Distintas)> Diferencias(string cs, string select)
     {
         var a = select.Replace("{P}", "EQA-");

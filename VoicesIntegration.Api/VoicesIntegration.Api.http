@@ -1,7 +1,3 @@
-### Pruebas manuales desde Visual Studio
-### Las llaves se leen de tus user-secrets (ver http-client.env.json); nunca se escriben aquí.
-### Arriba a la derecha del editor elige el ambiente "dev".
-
 @host = http://localhost:5034
 
 ### 1) Salud de la API y de la BD (no pide llave)

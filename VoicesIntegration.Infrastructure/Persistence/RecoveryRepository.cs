@@ -7,7 +7,6 @@ using VoicesIntegration.Application.Abstractions.Recovery;
 
 namespace VoicesIntegration.Infrastructure.Persistence;
 
-/// <summary>Recuperación: bitácora (SP 20), comparación (SP 21), cierre (SP 22), faltantes (SP 23), lotes (tabla 24 + SP 25).</summary>
 internal sealed class RecoveryRepository(ISqlConnectionFactory connectionFactory, ILogger<RecoveryRepository> logger) : IRecoveryRepository
 {
     private const string Estado = "dbo.USP_RECUPERACION_ESTADO_VOICES";
@@ -60,7 +59,6 @@ internal sealed class RecoveryRepository(ISqlConnectionFactory connectionFactory
     {
         await using var c = connectionFactory.CreateForBulk();
         await c.OpenAsync(ct);
-        // TableLock: carga masiva más rápida (solo una revisión a la vez, la cola procesa de una en una).
         using var bulk = new SqlBulkCopy(c, SqlBulkCopyOptions.TableLock, null)
         {
             DestinationTableName = Detalle, BulkCopyTimeout = 0, BatchSize = 100_000, EnableStreaming = true
@@ -96,7 +94,6 @@ internal sealed class RecoveryRepository(ISqlConnectionFactory connectionFactory
     {
         await using var c = connectionFactory.CreateForBulk();
         await c.OpenAsync(ct);
-        // SIN TableLock: mientras se carga este lote, SQL inserta el anterior (en paralelo).
         using var bulk = new SqlBulkCopy(c, SqlBulkCopyOptions.Default, null)
         {
             DestinationTableName = Carga, BulkCopyTimeout = 0, BatchSize = rows.Count, EnableStreaming = true
@@ -110,7 +107,6 @@ internal sealed class RecoveryRepository(ISqlConnectionFactory connectionFactory
 
     public async Task<bool> BulkInsertFinalAsync(Guid jobId, IReadOnlyList<RecoveryRow> rows, CancellationToken ct)
     {
-        // Bloqueo mutuo (deadlock 1205) con otra carga o un webhook: SQL deshace el lote; se reintenta hasta 3 veces.
         for (var intento = 1; ; intento++)
         {
             try { return await BulkInsertFinalOnceAsync(jobId, rows, ct); }
@@ -124,7 +120,7 @@ internal sealed class RecoveryRepository(ISqlConnectionFactory connectionFactory
     private async Task<bool> BulkInsertFinalOnceAsync(Guid jobId, IReadOnlyList<RecoveryRow> rows, CancellationToken ct)
     {
         var nowMx = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, Mexico);
-        var sw = Stopwatch.StartNew();   // medición: dónde se va el tiempo de cada lote (conexión / carga / commit)
+        var sw = Stopwatch.StartNew();
         await using var c = connectionFactory.CreateForBulk();
         var paquete = c.PacketSize;
         await c.OpenAsync(ct);
@@ -133,8 +129,6 @@ internal sealed class RecoveryRepository(ISqlConnectionFactory connectionFactory
         var inicioTxMs = sw.ElapsedMilliseconds;
         try
         {
-            // Tabla de recuperadas: solo la escribe la recuperación (el webhook no la toca). TableLock: los 2 cargadores se
-            // turnan con un solo candado (sin deadlocks entre ellos); los lectores no esperan (RCSI).
             using var bulk = new SqlBulkCopy(c, SqlBulkCopyOptions.CheckConstraints | SqlBulkCopyOptions.TableLock, tx)
             {
                 DestinationTableName = Final, BulkCopyTimeout = 0, BatchSize = rows.Count, EnableStreaming = true
@@ -153,7 +147,7 @@ internal sealed class RecoveryRepository(ISqlConnectionFactory connectionFactory
                 rows.Count * 1000.0 / Math.Max(1, finCommitMs));
             return true;
         }
-        catch (SqlException ex) when (ex.Number is 2601 or 2627)   // llave repetida: ya estaba en recuperadas (reintento)
+        catch (SqlException ex) when (ex.Number is 2601 or 2627)
         {
             logger.LogWarning("[RECOVERY BULK] Filas={Filas} CHOCÓ con llave repetida tras {Total}ms → camino seguro (carga + SP 20)",
                 rows.Count, sw.ElapsedMilliseconds);
@@ -196,7 +190,6 @@ internal sealed class RecoveryRepository(ISqlConnectionFactory connectionFactory
 
     public async Task CancelAsync(Guid jobId, CancellationToken ct)
     {
-        // Limpia lo temporal de llamadas y de SMS (cada SP no hace nada si ese archivo no era de su tipo).
         await ExecAsync("dbo.USP_RECUPERACION_INSERTAR_VOICES", new { JobId = jobId, Cancelar = true }, 0, ct);
         await ExecAsync("dbo.USP_RECUPERACION_SMS_INSERTAR_VOICES", new { JobId = jobId, Cancelar = true }, 0, ct);
     }
@@ -209,6 +202,4 @@ internal sealed class RecoveryRepository(ISqlConnectionFactory connectionFactory
     }
 
     private static string? Cut(string? v, int max) => v is null || v.Length <= max ? v : v[..max];
-
-    
 }

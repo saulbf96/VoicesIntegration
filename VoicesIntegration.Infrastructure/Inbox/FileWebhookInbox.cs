@@ -5,14 +5,7 @@ using VoicesIntegration.Application.Abstractions.Inbox;
 
 namespace VoicesIntegration.Infrastructure.Inbox;
 
-/// <summary>
-/// Bandeja de entrada en DISCO. Un archivo por aviso:
-///   inbox\tmp\        → se escribe aquí primero
-///   inbox\pending\    → se MUEVE aquí cuando ya está completo (mover es atómico: nunca hay archivos a medias)
-///   inbox\rejected\   → avisos inválidos + archivo .motivo.txt
-/// Nombre: {ticks UTC de llegada}_{canal}_{guid}.json → ordenar por nombre = orden de llegada.
-/// Sobrevive reinicios del IIS: al arrancar, lo pendiente se procesa.
-/// </summary>
+// Bandeja anterior: un archivo por aviso (tmp -> pending -> rejected)
 internal sealed class FileWebhookInbox : IWebhookInbox, IDisposable
 {
     private readonly string _tmp, _pending, _rejected;
@@ -32,7 +25,6 @@ internal sealed class FileWebhookInbox : IWebhookInbox, IDisposable
         var name = NewName(channel, receivedAtUtc);
         var tmpPath = Path.Combine(_tmp, name);
 
-        // WriteThrough: el sistema operativo escribe a disco de inmediato (no se queda en caché).
         await using (var fs = new FileStream(tmpPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, FileOptions.WriteThrough | FileOptions.Asynchronous))
         {
             await fs.WriteAsync(Utf8.GetBytes(rawPayload), cancellationToken);
@@ -40,7 +32,7 @@ internal sealed class FileWebhookInbox : IWebhookInbox, IDisposable
         }
 
         File.Move(tmpPath, Path.Combine(_pending, name));
-        _signal.Release();   // despierta al procesador
+        _signal.Release();
     }
 
     public async Task SaveRejectedAsync(string channel, string rawPayload, DateTimeOffset receivedAtUtc, string reason, CancellationToken cancellationToken)
@@ -50,12 +42,6 @@ internal sealed class FileWebhookInbox : IWebhookInbox, IDisposable
         await File.WriteAllTextAsync(Path.Combine(_rejected, name + ".motivo.txt"), reason, Utf8, cancellationToken);
     }
 
-
-    //Ireandoly list 
-    // NO ordenar toda la carpeta: con cientos de miles de archivos eso tarda muchísimo en CADA lote
-    // y la bandeja se atora (pasó el 2026-11-06 con ~356 mil). NTFS ya entrega los nombres en orden
-    // y el nombre empieza con los ticks de llegada → los primeros que salen son los más viejos.
-    // Se toman 'max' y solo esos se ordenan (por si el disco no fuera NTFS).
     public IReadOnlyList<InboxItem> GetPending(int max) =>
         Directory.EnumerateFiles(_pending, "*.json")
             .Select(Path.GetFileName)
@@ -77,8 +63,6 @@ internal sealed class FileWebhookInbox : IWebhookInbox, IDisposable
 
     public InboxStatus GetStatus()
     {
-        // Solo CONTAR (sin guardar ni ordenar la lista): se llama cada minuto (latido, alertas, /health).
-        // El primero que entrega NTFS es el más viejo (nombre = ticks de llegada).
         var pendingCount = 0;
         string? oldest = null;
         foreach (var f in Directory.EnumerateFiles(_pending, "*.json"))
@@ -91,12 +75,7 @@ internal sealed class FileWebhookInbox : IWebhookInbox, IDisposable
         return new InboxStatus(pendingCount, rejected, oldest is null ? null : ParseReceivedAt(oldest), freeMb);
     }
 
-    /// <summary>
-    /// Limpieza para que el disco NO se llene:
-    /// - "rejected": borra los avisos (y su .motivo.txt) más viejos que <paramref name="rejectedRetention"/>.
-    /// - "tmp": borra archivos abandonados (se cortó la luz a media escritura) más viejos que <paramref name="tmpMaxAge"/>.
-    /// "pending" NUNCA se limpia aquí: cada aviso se borra solo en cuanto se guarda en la BD.
-    /// </summary>
+    // Borra rechazados viejos y temporales abandonados
     public int Cleanup(TimeSpan rejectedRetention, TimeSpan tmpMaxAge)
     {
         var now = DateTime.UtcNow;
@@ -114,22 +93,17 @@ internal sealed class FileWebhookInbox : IWebhookInbox, IDisposable
     private static bool TryDelete(string path)
     {
         try { File.Delete(path); return true; }
-        catch (IOException) { return false; }          // en uso: se intenta en la siguiente limpieza
+        catch (IOException) { return false; }
         catch (UnauthorizedAccessException) { return false; }
     }
 
     public async Task WaitForItemsAsync(TimeSpan maxWait, CancellationToken cancellationToken)
     {
         await _signal.WaitAsync(maxWait, cancellationToken);
-        while (_signal.CurrentCount > 0) _signal.Wait(0);   // junta varias señales en una sola vuelta
+        while (_signal.CurrentCount > 0) _signal.Wait(0);
     }
 
     public void Dispose() => _signal.Dispose();
-
-
-
-
-
 
     private static string NewName(string channel, DateTimeOffset receivedAtUtc)
     {
@@ -138,7 +112,7 @@ internal sealed class FileWebhookInbox : IWebhookInbox, IDisposable
         return $"{receivedAtUtc.UtcTicks.ToString("D19", CultureInfo.InvariantCulture)}_{channel}_{Guid.NewGuid():N}.json";
     }
 
-    /// <summary>Archivos viejos (sin canal en el nombre) eran todos de Blaster.</summary>
+    // Archivos sin canal en el nombre son de Blaster
     private static string ParseChannel(string fileName)
     {
         var parts = fileName.Split('_');
@@ -150,4 +124,3 @@ internal sealed class FileWebhookInbox : IWebhookInbox, IDisposable
             ? new DateTimeOffset(ticks, TimeSpan.Zero)
             : File.GetCreationTimeUtc(fileName);
 }
-

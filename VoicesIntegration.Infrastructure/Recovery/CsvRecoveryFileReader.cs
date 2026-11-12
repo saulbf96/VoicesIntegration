@@ -8,23 +8,15 @@ using VoicesIntegration.Domain.Common;
 
 namespace VoicesIntegration.Infrastructure.Recovery;
 
-/// <summary>
-/// Lee el "Reporte de campañas" de Voices (CSV UTF-8, 22 columnas) en STREAMING: no se carga
-/// completo a memoria (pesa ~4 GB por día). Acepta .zip con el .csv adentro (sube 10 veces más rápido).
-/// El campo "data" es JSON con comas y comillas: CsvHelper lo respeta (formato CSV estándar).
-/// </summary>
+// Lee el reporte de Voices (.csv o .zip) por streaming
 internal sealed class CsvRecoveryFileReader : IRecoveryFileReader
 {
-    /// <summary>Columnas mínimas para poder comparar e insertar.</summary>
     public static readonly string[] Required =
         ["identifier", "campaign_id", "campaign_name", "phone_number", "dialed_at", "failed_at", "sip_code", "sip_description"];
 
     private static readonly string[] DateFormats = ["yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd HH:mm:ss.fff", "yyyy-MM-ddTHH:mm:ss", "dd/MM/yyyy HH:mm:ss"];
 
-    /// <summary>
-    /// SMS: nombres posibles de cada columna (el formato exacto del reporte de SMS aún no se confirma con un archivo real).
-    /// Se acepta cualquiera de los alias; los encabezados se comparan en minúsculas y con "_" en lugar de espacios.
-    /// </summary>
+    // Nombres posibles de cada columna del reporte de SMS
     private static readonly Dictionary<string, string[]> SmsAliases = new()
     {
         ["message_id"] = ["message_id", "identifier", "id_mensaje", "sms_id", "id"],
@@ -73,7 +65,6 @@ internal sealed class CsvRecoveryFileReader : IRecoveryFileReader
             var faltan = new List<string>();
             if (iId < 0) faltan.Add("message_id");
             if (iStatus < 0) faltan.Add("status");
-            // Un reporte de llamadas trae sip_code: avisar que se eligió el tipo equivocado.
             if (header.Contains("sip_code") || faltan.Count > 0)
                 throw new DomainException(header.Contains("sip_code")
                     ? "Este archivo es un reporte de LLAMADAS (Blaster), no de mensajes. Cambia el tipo a \"Llamadas\"."
@@ -110,7 +101,7 @@ internal sealed class CsvRecoveryFileReader : IRecoveryFileReader
 
     private static readonly TimeZoneInfo Mexico = FindMexico();
 
-    /// <summary>Fecha "tal cual" (hora México) o, si trae zona (ej. 2026-11-05T18:00:00Z), convertida a hora México.</summary>
+    // Si trae zona horaria se pasa a hora de Mexico
     private static DateTime? AnyDate(string? v)
     {
         if (Date(v) is { } d) return d;
@@ -144,9 +135,8 @@ internal sealed class CsvRecoveryFileReader : IRecoveryFileReader
             var cfg = new CsvConfiguration(CultureInfo.InvariantCulture)
             {
                 HasHeaderRecord = true,
-                BadDataFound = null,          // comillas raras dentro de un campo: no detener la carga
-                MissingFieldFound = null,     // filas con menos columnas: campos faltantes = vacío
-                // Sin TrimOptions: recortar cada campo (incluidos los textos largos) es caro; Empty() recorta solo lo que se usa.
+                BadDataFound = null,
+                MissingFieldFound = null,
                 PrepareHeaderForMatch = a => a.Header.Trim().ToLowerInvariant()
             };
             using var csv = new CsvReader(sr, cfg);
@@ -158,7 +148,6 @@ internal sealed class CsvRecoveryFileReader : IRecoveryFileReader
             if (missing.Count > 0)
                 throw new DomainException("El archivo no parece el reporte de LLAMADAS (Blaster) de Voices. ¿Elegiste el tipo correcto? Faltan columnas: " + string.Join(", ", missing));
 
-            // Posición de cada columna (se busca UNA vez, no en cada fila). -1 = no viene en el archivo.
             int I(string name) => header.IndexOf(name);
             int iId = I("identifier"), iCampId = I("campaign_id"), iCampName = I("campaign_name"), iChannel = I("channel"),
                 iPhone = I("phone_number"), iType = I("type"), iData = I("data"), iMsg = I("message"), iAttempts = I("call_attempts"),
@@ -172,13 +161,12 @@ internal sealed class CsvRecoveryFileReader : IRecoveryFileReader
             {
                 ct.ThrowIfCancellationRequested();
                 var id = F(iId);
-                if (string.IsNullOrWhiteSpace(id)) continue;   // fila sin llave: no se puede comparar
+                if (string.IsNullOrWhiteSpace(id)) continue;
                 id = id.Trim();
-                if (include is not null && !include(id)) continue;   // no es de las que se buscan
+                if (include is not null && !include(id)) continue;
 
                 if (light)
                 {
-                    // Solo lo necesario para comparar (rápido): llave, resultado, fechas y a_num.
                     yield return new RecoveryRow(Cut(id, 100)!, null, null, null, null, null, null, null, null, null, null, null, null, null,
                         DialedAt: Date(F(iDialed)), FailedAt: Date(F(iFailed)), SipCode: Int(F(iSip)), null, null, null, null,
                         ANum: Cut(F(iANum), 20));
@@ -223,7 +211,6 @@ internal sealed class CsvRecoveryFileReader : IRecoveryFileReader
     private static decimal? Dec(string? v) => decimal.TryParse(Empty(v), NumberStyles.Number, CultureInfo.InvariantCulture, out var d) ? d : null;
     private static DateTime? Date(string? v) =>
         DateTime.TryParseExact(Empty(v), DateFormats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var d) ? d : null;
-    // "Sí" / "Si" / "S" / "true" / "1" = transferida. (El reporte trae "Sí" o "No".)
     private static bool? Bool(string? v) => Empty(v) is not { } s ? null
         : s.StartsWith('S') || s.StartsWith('s') || s == "1" || s.Equals("true", StringComparison.OrdinalIgnoreCase);
 }

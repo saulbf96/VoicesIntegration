@@ -7,24 +7,16 @@ using VoicesIntegration.Application.Abstractions.Notifications;
 
 namespace VoicesIntegration.Infrastructure.Monitoring;
 
-/// <summary>Sección "Logging": dónde están los logs y cuándo se limpian.</summary>
 public sealed class LimpiezaLogsOptions
 {
-    /// <summary>Carpeta de los logs (la pone Program.cs, la misma que usa el log).</summary>
     public string FilePath { get; set; } = string.Empty;
 
-    /// <summary>Día de la limpieza semanal (Monday = lunes).</summary>
     public DayOfWeek LimpiezaDia { get; set; } = DayOfWeek.Monday;
 
-    /// <summary>Hora de la limpieza (hora de México).</summary>
     public string LimpiezaHora { get; set; } = "23:00";
 }
 
-/// <summary>
-/// Limpieza SEMANAL del log: el día y hora configurados (lunes 23:00) borra los archivos voices-*.log ANTERIORES
-/// a ese lunes (se queda el del lunes y, si la limpieza se hace tarde, los días siguientes), así la semana empieza limpia.
-/// Si a esa hora la API estaba apagada, la hace en cuanto vuelve a arrancar (no se salta semanas).
-/// </summary>
+// Limpieza semanal de logs
 internal sealed partial class LimpiezaLogsWorker(
     IOptions<LimpiezaLogsOptions> options, INotificador notificador, TimeProvider time, ILogger<LimpiezaLogsWorker> logger)
     : BackgroundService
@@ -54,9 +46,8 @@ internal sealed partial class LimpiezaLogsWorker(
         var marca = Path.Combine(o.FilePath, Marca);
         var ultima = File.Exists(marca) && DateTime.TryParse(File.ReadAllText(marca), CultureInfo.InvariantCulture, DateTimeStyles.None, out var u)
             ? u : DateTime.MinValue;
-        if (ultima >= programada) return;   // ya se hizo la de esta semana
+        if (ultima >= programada) return;
 
-        // Se conservan los del día de la limpieza programada (el lunes), aunque se haga después por estar apagada.
         var conservar = DateOnly.FromDateTime(programada);
         var borrados = new List<string>();
         var noSePudo = new List<string>();
@@ -64,7 +55,7 @@ internal sealed partial class LimpiezaLogsWorker(
         foreach (var f in ParaBorrar(Directory.EnumerateFiles(o.FilePath, "voices-*.log"), conservar).Order())
         {
             try { var len = new FileInfo(f).Length; File.Delete(f); borrados.Add(Path.GetFileName(f)); bytes += len; }
-            catch (IOException) { noSePudo.Add(Path.GetFileName(f)); }   // si algún programa lo tiene abierto, se intenta la próxima vez
+            catch (IOException) { noSePudo.Add(Path.GetFileName(f)); }
             catch (UnauthorizedAccessException) { noSePudo.Add(Path.GetFileName(f)); }
         }
         File.WriteAllText(marca, ahora.ToString("s", CultureInfo.InvariantCulture));
@@ -81,7 +72,6 @@ internal sealed partial class LimpiezaLogsWorker(
         await notificador.EnviarAsync($"Limpieza semanal del log: {borrados.Count} archivo(s) borrado(s)", cuerpo, ct);
     }
 
-    /// <summary>La última fecha/hora de limpieza que ya debió ocurrir (ej. el lunes más reciente a las 23:00).</summary>
     internal static DateTime UltimaProgramada(DateTime ahora, DayOfWeek dia, TimeSpan hora)
     {
         var atras = ((int)ahora.DayOfWeek - (int)dia + 7) % 7;
@@ -89,13 +79,12 @@ internal sealed partial class LimpiezaLogsWorker(
         return candidata <= ahora ? candidata : candidata.AddDays(-7);
     }
 
-    /// <summary>Archivos voices-AAAAMMDD(_NNN).log de días ANTERIORES al que se conserva (el lunes de la limpieza).</summary>
     internal static IEnumerable<string> ParaBorrar(IEnumerable<string> archivos, DateOnly conservar)
     {
         foreach (var f in archivos)
         {
             var m = FechaDelArchivo().Match(Path.GetFileName(f));
-            if (!m.Success) continue;   // otro archivo: no se toca
+            if (!m.Success) continue;
             if (DateOnly.TryParseExact(m.Groups[1].Value, "yyyyMMdd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var d) && d < conservar)
                 yield return f;
         }

@@ -7,17 +7,11 @@ using VoicesIntegration.Application.Features.Webhooks.CallResult;
 
 namespace VoicesIntegration.Api.Endpoints;
 
-/// <summary>
-/// Endpoints que llama Voices (Blaster y SMS) cada vez que hay un resultado.
-/// "Primero guardar, después procesar": el aviso se guarda en la bandeja en disco y se
-/// contesta 200 de inmediato. Un proceso en segundo plano lo pasa a la BD (con reintentos).
-/// Así, si la BD está lenta o caída, NO se pierde el aviso.
-/// </summary>
+// Webhooks de Voices: se guarda en la bandeja y se responde 200 rapido
 public static class WebhookEndpoints
 {
     public const string RateLimitPolicy = "webhook";
 
-    // Un webhook pesa ~2 KB (un lote de SMS puede pesar más); 1 MB evita cuerpos gigantes.
     private const int MaxBodyBytes = 1024 * 1024;
 
     public static IEndpointRouteBuilder MapWebhookEndpoints(this IEndpointRouteBuilder app)
@@ -30,7 +24,7 @@ public static class WebhookEndpoints
             .RequireWebhookSecret()
             .RequireRateLimiting(RateLimitPolicy);
 
-        // SMS: el MISMO endpoint recibe "Message status" y "Batch status" (Voices manda los dos a la misma URL).
+        // Llegan Message status, Batch status y Reply al mismo endpoint
         app.MapPost("/webhooks/sms/message-status",
                 (HttpRequest r, IWebhookInbox i, ReceptionTracker k, TimeProvider t, ILoggerFactory l, CancellationToken c) => ReceiveAsync(WebhookChannels.Sms, r, i, k, t, l, c))
             .WithTags("Webhooks")
@@ -59,8 +53,6 @@ public static class WebhookEndpoints
         if (rawPayload is null)
             return TypedResults.Problem(statusCode: StatusCodes.Status413PayloadTooLarge, title: "Cuerpo demasiado grande");
 
-        // Validación mínima ANTES de aceptar: debe ser un objeto JSON. Lo que no lo es se guarda
-        // en "rechazados" (para revisarlo) y se le avisa a Voices con 400.
         if (!IsJsonObject(rawPayload))
         {
             await inbox.SaveRejectedAsync(channel, rawPayload, receivedAt, "No es un objeto JSON válido.", CancellationToken.None);
@@ -69,11 +61,9 @@ public static class WebhookEndpoints
                 detail: "El cuerpo debe ser un objeto JSON.");
         }
 
-        // CancellationToken.None: aunque Voices corte la conexión, el aviso que ya llegó se guarda.
         await inbox.SaveAsync(channel, rawPayload, receivedAt, CancellationToken.None);
-        tracker.Mark(receivedAt);   // para las alertas: "empezó a recibir" / "no llegan datos desde..."
+        tracker.Mark(receivedAt);
 
-        // Ya está a salvo en disco: Voices puede darlo por entregado.
         return TypedResults.Ok(new { received = true });
     }
 
@@ -90,7 +80,7 @@ public static class WebhookEndpoints
         }
     }
 
-    /// <summary>Lee el cuerpo con tope de tamaño (también si no trae Content-Length). Null = excedido.</summary>
+    // Lee el body con limite de tamano; null si se pasa
     private static async Task<string?> ReadBodyAsync(HttpRequest request, CancellationToken cancellationToken)
     {
         using var buffer = new MemoryStream();

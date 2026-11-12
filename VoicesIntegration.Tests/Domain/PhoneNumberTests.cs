@@ -18,10 +18,10 @@ public class PhoneNumberTests
     [Theory]
     [InlineData(null)]
     [InlineData("")]
-    [InlineData("554433221")]       // 9 dígitos
-    [InlineData("55443322110")]     // 11 dígitos
-    [InlineData("55443322aa")]      // letras
-    [InlineData("+525544332211")]   // con lada internacional
+    [InlineData("554433221")]
+    [InlineData("55443322110")]
+    [InlineData("55443322aa")]
+    [InlineData("+525544332211")]
     public void Create_Invalido_LanzaDomainException(string? input)
     {
         Assert.Throws<DomainException>(() => PhoneNumber.Create(input));

@@ -3,20 +3,13 @@ using VoicesIntegration.Application.Abstractions.Recovery;
 
 namespace VoicesIntegration.Application.Features.Recovery;
 
-/// <summary>
-/// REGLA DEL USUARIO (08/11/2026): JAMÁS se recupera el MISMO día. Ese día el webhook sigue guardando (se está
-/// "consumiendo") y recuperar encima satura el 205. Solo se insertan archivos de días ANTERIORES y, además,
-/// solo cuando la bandeja del webhook ya no tiene avisos pendientes de ese día o de antes.
-/// Revisar (comparar) sí se permite siempre: lo que se bloquea es "Insertar faltantes".
-/// </summary>
+// No se recupera el mismo dia: el webhook todavia esta guardando
 public static class RecoveryDayRule
 {
     private static readonly TimeZoneInfo Mexico = FindMexico();
 
-    /// <summary>Devuelve null si se puede insertar; si no, el motivo para mostrarle al usuario.</summary>
     public static string? WhyNot(RecoveryJob job, InboxStatus inbox, DateTimeOffset utcNow)
     {
-        // Desde/Hasta vienen del archivo, en hora de México. Sin fechas = no hay nada marcado por Voices.
         if (job.Hasta is not { } hasta) return null;
 
         var hoyMx = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(utcNow, Mexico).DateTime);

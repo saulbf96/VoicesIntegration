@@ -7,17 +7,12 @@ using VoicesIntegration.Domain.Blaster;
 
 namespace VoicesIntegration.Infrastructure.Persistence;
 
-/// <summary>
-/// Repositorio con Dapper que SOLO ejecuta stored procedures
-/// (scripts en VOICES\SCRIPTS). Todos los valores van como parámetros:
-/// nunca se concatena texto en SQL → sin riesgo de SQL injection.
-/// </summary>
+// Solo stored procedures, todo por parametros
 internal sealed class BlasterCallRepository(ISqlConnectionFactory connectionFactory) : IBlasterCallRepository
 {
     private const string RegisterEventProcedure = "dbo.USP_GUARDAR_LLAMADA_VOICES";
     private const string GetByMessageIdProcedure = "dbo.USP_CONSULTAR_LLAMADA_VOICES";
 
-    // Si la BD no responde en 30 s, se corta y el aviso se reintenta desde la bandeja.
     private const int CommandTimeoutSeconds = 30;
 
     public async Task<bool> RegisterCallResultAsync(
@@ -29,12 +24,11 @@ internal sealed class BlasterCallRepository(ISqlConnectionFactory connectionFact
         var parameters = new DynamicParameters();
         parameters.Add("@Identifier", result.MessageId, DbType.AnsiString, size: CallResult.MaxMessageIdLength);
         parameters.Add("@TipoLlamada", result.CallType == CallType.Transfer ? "TRANSFER" : "INITIAL", DbType.AnsiString, size: 10);
-        parameters.Add("@Status", result.StatusText, DbType.AnsiString, size: 20);   // tal cual lo mandó Voices
+        parameters.Add("@Status", result.StatusText, DbType.AnsiString, size: 20);
         parameters.Add("@SipCode", result.SipCode, DbType.Int32);
         parameters.Add("@SipDescription", result.SipDescription, DbType.String, size: CallResult.MaxSipDescriptionLength);
         parameters.Add("@DurationMinutes", result.DurationMinutes, DbType.Int32);
         parameters.Add("@DurationSeconds", result.DurationSeconds, DbType.Int32);
-        // Teléfono, operador, ruta y demás columnas el SP los lee del JSON del aviso (@RawPayload, que NO se guarda).
         parameters.Add("@PayloadHash", payloadHash, DbType.Binary, size: 32);
         parameters.Add("@RawPayload", rawPayload, DbType.String, size: -1);
         parameters.Add("@ReceivedAtUtc", result.ReceivedAtUtc.UtcDateTime, DbType.DateTime2);
@@ -50,24 +44,19 @@ internal sealed class BlasterCallRepository(ISqlConnectionFactory connectionFact
         return !parameters.Get<bool>("@IsDuplicate");
     }
 
-
-
-    // V2 (script 30): la API manda los campos del JSON ya separados; el 205 no lee JSON (el SP 28 se queda como respaldo).
     private const string RegisterBatchProcedure = "dbo.USP_GUARDAR_LLAMADAS_LOTE_V2_VOICES";
     private const string BatchTableType = "dbo.TT_AVISOS_LLAMADA_V2_VOICES";
     private const int BatchTimeoutSeconds = 120;
 
-    /// <summary>Campos del JSON que el SP V2 recibe ya separados (mismo orden que el tipo de tabla del script 30).</summary>
     private static readonly string[] CamposJson =
     [
         "campaign_id", "campaign_name", "channel", "phone_number", "type",
-        /* aquí va J_DATA (fragmento) */
         "message", "call_attempts", "duration_minutes", "duration_seconds",
         "duration_transfer_minutes", "duration_transfer_seconds", "credits", "dialed_at", "failed_at",
         "sip_code", "sip_description", "a_num", "status", "operator", "is_mobile", "outbound_route", "audio",
     ];
 
-    /// <summary>Arma el lote para el SP V2 (columnas en el MISMO orden que dbo.TT_AVISOS_LLAMADA_V2_VOICES).</summary>
+    // Mismo orden de columnas que TT_AVISOS_LLAMADA_V2_VOICES
     internal static DataTable BuildBatchTable(IReadOnlyList<CallEventToSave> events)
     {
         var t = new DataTable();
@@ -110,16 +99,14 @@ internal sealed class BlasterCallRepository(ISqlConnectionFactory connectionFact
         return t;
     }
 
-    // Errores por DATO (o porque el SP/tipo aún no existe en la BD): el lote se guarda uno por uno.
-    // Cualquier otro error (timeout, conexión, bloqueo...) es falla técnica: los avisos esperan en la bandeja.
     private static readonly HashSet<int> DataErrors =
     [
-        2812,  // no existe el procedimiento (falta correr el script 28)
-        2715,  // no existe el tipo de tabla
-        8152, 2628,             // texto demasiado largo
-        245, 241, 8114, 8115,   // conversión de tipo
-        515, 547, 2601, 2627,   // NULL, restricción, llave repetida
-        13609,                  // JSON inválido
+        2812,
+        2715,
+        8152, 2628,
+        245, 241, 8114, 8115,
+        515, 547, 2601, 2627,
+        13609,
     ];
 
     public async Task<IReadOnlyList<bool>> RegisterCallResultsBatchAsync(IReadOnlyList<CallEventToSave> events, CancellationToken cancellationToken)
@@ -162,7 +149,6 @@ internal sealed class BlasterCallRepository(ISqlConnectionFactory connectionFact
         var call = await grid.ReadSingleOrDefaultAsync<CallDetails>();
         if (call is null)
             return null;
-
 
         var events = (await grid.ReadAsync<CallEventItem>()).ToList();
         return call with { Events = events };

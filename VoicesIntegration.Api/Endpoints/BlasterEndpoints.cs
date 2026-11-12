@@ -7,7 +7,7 @@ using VoicesIntegration.Application.Features.Calls.GetOutboundRoutes;
 
 namespace VoicesIntegration.Api.Endpoints;
 
-/// <summary>Endpoints de consulta para tu equipo. Todos exigen el header X-Api-Key.</summary>
+// Consultas internas (requieren X-Api-Key)
 public static class BlasterEndpoints
 {
     public static IEndpointRouteBuilder MapBlasterEndpoints(this IEndpointRouteBuilder app)
@@ -16,13 +16,12 @@ public static class BlasterEndpoints
             .WithTags("Blaster")
             .RequireInternalApiKey();
 
-        // Consulta en vivo a Blaster: sirve para comprobar que la API key de Voices funciona.
+        // Prueba que la API key de Voices funcione
         group.MapGet("/outbound-routes", GetOutboundRoutesAsync).WithName("GetOutboundRoutes");
 
-        // Consulta en NUESTRA BD lo que llegó por webhook.
         group.MapGet("/calls/{messageId}", GetCallAsync).WithName("GetCall");
 
-        // Estado de la bandeja: cuántos avisos esperan pasar a la BD y cuántos se rechazaron.
+        // Pendientes y rechazados de la bandeja
         group.MapGet("/inbox", (IWebhookInbox inbox) => TypedResults.Ok(inbox.GetStatus())).WithName("GetInboxStatus");
 
         return app;

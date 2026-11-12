@@ -4,7 +4,6 @@ using VoicesIntegration.Infrastructure.Inbox;
 
 namespace VoicesIntegration.Tests.Infrastructure;
 
-/// <summary>Prueba la bandeja REAL en disco (carpeta temporal que se borra al final).</summary>
 public sealed class FileWebhookInboxTests : IDisposable
 {
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "voices-inbox-test-" + Guid.NewGuid().ToString("N"));
@@ -22,7 +21,7 @@ public sealed class FileWebhookInboxTests : IDisposable
         var item = Assert.Single(inbox.GetPending(10));
         Assert.Equal(llegada, item.ReceivedAtUtc);
         Assert.Equal("""{"identifier":"X","nombre":"José"}""", await inbox.ReadAsync(item, CancellationToken.None));
-        Assert.Empty(Directory.GetFiles(Path.Combine(_dir, "tmp")));   // no quedan archivos a medias
+        Assert.Empty(Directory.GetFiles(Path.Combine(_dir, "tmp")));
     }
 
     [Fact]
@@ -62,7 +61,7 @@ public sealed class FileWebhookInboxTests : IDisposable
         using (var inbox = Crear())
             await inbox.SaveAsync(WebhookChannels.Blaster, "{\"a\":1}", DateTimeOffset.UtcNow, CancellationToken.None);
 
-        using var reiniciada = Crear();   // como si el IIS se hubiera reiniciado
+        using var reiniciada = Crear();
         Assert.Single(reiniciada.GetPending(10));
     }
 
@@ -71,7 +70,7 @@ public sealed class FileWebhookInboxTests : IDisposable
     {
         using var inbox = Crear();
         await inbox.SaveAsync(WebhookChannels.Sms, "{\"m\":1}", DateTimeOffset.UtcNow, CancellationToken.None);
-        File.WriteAllText(Path.Combine(_dir, "pending", "0000000000000000001_0123456789abcdef0123456789abcdef.json"), "{}");  // formato viejo
+        File.WriteAllText(Path.Combine(_dir, "pending", "0000000000000000001_0123456789abcdef0123456789abcdef.json"), "{}");
 
         var items = inbox.GetPending(10);
 
@@ -97,16 +96,16 @@ public sealed class FileWebhookInboxTests : IDisposable
         using var inbox = Crear();
         await inbox.SaveRejectedAsync(WebhookChannels.Blaster, "viejo", DateTimeOffset.UtcNow, "motivo", CancellationToken.None);
         foreach (var f in Directory.GetFiles(Path.Combine(_dir, "rejected")))
-            File.SetLastWriteTimeUtc(f, DateTime.UtcNow.AddDays(-40));              // rechazado de hace 40 días
+            File.SetLastWriteTimeUtc(f, DateTime.UtcNow.AddDays(-40));
         var tmpViejo = Path.Combine(_dir, "tmp", "abandonado.json");
         File.WriteAllText(tmpViejo, "{}");
-        File.SetLastWriteTimeUtc(tmpViejo, DateTime.UtcNow.AddHours(-3));           // temporal abandonado
+        File.SetLastWriteTimeUtc(tmpViejo, DateTime.UtcNow.AddHours(-3));
         await inbox.SaveRejectedAsync(WebhookChannels.Blaster, "reciente", DateTimeOffset.UtcNow, "motivo", CancellationToken.None);
 
         var borrados = inbox.Cleanup(TimeSpan.FromDays(30), TimeSpan.FromHours(1));
 
-        Assert.Equal(3, borrados);                                                   // .json + .motivo.txt viejos + tmp
-        Assert.Equal(1, inbox.GetStatus().Rejected);                                 // el reciente se queda
+        Assert.Equal(3, borrados);
+        Assert.Equal(1, inbox.GetStatus().Rejected);
         Assert.False(File.Exists(tmpViejo));
     }
 

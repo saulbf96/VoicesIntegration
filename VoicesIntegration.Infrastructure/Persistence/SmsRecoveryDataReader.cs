@@ -4,7 +4,6 @@ using VoicesIntegration.Application.Abstractions.Recovery;
 
 namespace VoicesIntegration.Infrastructure.Persistence;
 
-/// <summary>Adaptador "streaming" para SqlBulkCopy del reporte de SMS a dbo.TBL_RECUPERACION_SMS_VOICES.</summary>
 internal sealed class SmsRecoveryDataReader(Guid jobId, IAsyncEnumerable<SmsRecoveryRow> rows, Func<int, Task> onProgress, CancellationToken ct)
     : DbDataReader
 {
