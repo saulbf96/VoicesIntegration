@@ -313,7 +313,7 @@ footer{display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px;paddin
   </section>
 
   <footer>
-    <span>© UNO Contact Solutions Bureau · Comunicación multicanal en un solo lugar</span>
+    <span>© <span id="anio">2026</span> UNO Contact Solutions Bureau</span>
     <span>Los archivos subidos se conservan 2 días en el servidor.</span>
   </footer>
 </main>
@@ -744,6 +744,7 @@ async function resumeActive(){
     if (a) track(a.id, false);
   } catch {}
 }
+$('#anio').textContent = new Date().getFullYear();
 loadHealth(); loadHistory(); resumeActive();
 setInterval(loadHealth, 60000);
 </script>
