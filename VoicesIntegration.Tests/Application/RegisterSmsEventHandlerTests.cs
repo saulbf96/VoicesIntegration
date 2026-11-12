@@ -63,6 +63,72 @@ public class RegisterSmsEventHandlerTests
         Assert.Empty(repo.Guardados);
     }
 
+    [Theory]
+    [InlineData("NEGOCIAR")]
+    [InlineData("No molestar")]
+    [InlineData("")]          // aunque venga vacío, se guarda
+    [InlineData(null)]
+    public async Task Respuesta_SeGuardaTalCual_SinConsultarAVoices(string? texto)
+    {
+        var repo = new FakeRepo();
+        var gw = new FakeGateway();
+        var h = new RegisterSmsEventHandler(repo, gw, NullLogger<RegisterSmsEventHandler>.Instance);
+        var p = new SmsWebhookPayload
+        {
+            Event = "Reply", MessageId = "M1", Number = " 5500000000 ", Text = texto,
+            CampaignId = "C1", CreatedAt = "2026-11-11T17:29:00.727Z",
+        };
+
+        var nuevo = await h.HandleAsync(p, """{"event":"Reply"}""", Now, CancellationToken.None);
+
+        Assert.True(nuevo);
+        var r = Assert.Single(repo.Respuestas);
+        Assert.Equal(texto, r.Text);
+        Assert.Equal("5500000000", r.Number);
+        Assert.Equal(new DateTimeOffset(2026, 11, 11, 17, 29, 0, 727, TimeSpan.Zero), r.CreatedAtUtc);
+        Assert.Empty(repo.Guardados);   // no va a la tabla de estados
+        Assert.Equal(0, gw.Consultas);
+    }
+
+    [Fact]
+    public async Task Respuesta_ConFechaRara_SeGuardaSinFecha()
+    {
+        var repo = new FakeRepo();
+        var h = new RegisterSmsEventHandler(repo, new FakeGateway(), NullLogger<RegisterSmsEventHandler>.Instance);
+
+        await h.HandleAsync(new SmsWebhookPayload { Event = "Reply", MessageId = "M1", Number = "5500000000", Text = "hola", CreatedAt = "ayer" },
+            "{}", Now, CancellationToken.None);
+
+        Assert.Null(Assert.Single(repo.Respuestas).CreatedAtUtc);
+    }
+
+    [Fact]
+    public async Task Respuesta_TextoMuyLargo_SeRecorta()
+    {
+        var repo = new FakeRepo();
+        var h = new RegisterSmsEventHandler(repo, new FakeGateway(), NullLogger<RegisterSmsEventHandler>.Instance);
+
+        await h.HandleAsync(new SmsWebhookPayload { Event = "Reply", MessageId = "M1", Number = "5500000000", Text = new string('x', 5000) },
+            "{}", Now, CancellationToken.None);
+
+        Assert.Equal(RegisterSmsEventHandler.MaxReplyTextLength, Assert.Single(repo.Respuestas).Text!.Length);
+    }
+
+    [Theory]
+    [InlineData(null, "5500000000")]   // sin message_id
+    [InlineData("M1", null)]           // sin número
+    [InlineData("M1", "   ")]
+    public async Task Respuesta_SinComoLigarla_SeRechaza(string? id, string? numero)
+    {
+        var repo = new FakeRepo();
+        var h = new RegisterSmsEventHandler(repo, new FakeGateway(), NullLogger<RegisterSmsEventHandler>.Instance);
+
+        await Assert.ThrowsAsync<DomainException>(() =>
+            h.HandleAsync(new SmsWebhookPayload { Event = "Reply", MessageId = id, Number = numero, Text = "hola" }, "{}", Now, CancellationToken.None));
+
+        Assert.Empty(repo.Respuestas);
+    }
+
     private sealed class FakeGateway : ISmsGateway
     {
         public SmsMessageDetail? Detalle { get; init; }
@@ -91,6 +157,13 @@ public class RegisterSmsEventHandlerTests
         {
             foreach (var x in items) Guardados.Add((x.ReceivedAtUtc, x.Detail));
             return Task.FromResult<IReadOnlyList<bool>>(items.Select(_ => true).ToList());
+        }
+
+        public List<SmsReplyToSave> Respuestas { get; } = [];
+        public Task<bool> RegisterReplyAsync(SmsReplyToSave reply, CancellationToken ct)
+        {
+            Respuestas.Add(reply);
+            return Task.FromResult(true);
         }
     }
 }

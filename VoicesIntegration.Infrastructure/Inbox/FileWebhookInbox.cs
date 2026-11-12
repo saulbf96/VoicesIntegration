@@ -150,3 +150,4 @@ internal sealed class FileWebhookInbox : IWebhookInbox, IDisposable
             ? new DateTimeOffset(ticks, TimeSpan.Zero)
             : File.GetCreationTimeUtc(fileName);
 }
+

@@ -160,6 +160,24 @@ public class WebhookInboxProcessorTests
         Assert.Empty(repo.Saved);   // no se fue a Blaster
     }
 
+    [Fact]
+    public async Task RespuestaSms_SeGuarda_NoSeRechaza()
+    {
+        var (processor, inbox, repo) = Crear();
+        var antes = Sms.Respuestas;
+        var antesEstados = Sms.Total;
+        // Forma real de Voices (11/11/2026): sin status, con event = Reply.
+        inbox.Agregar("""{"number":"5500000000","message_id":"18dd19da-567f-4b55-8ece-82b46554b806","created_at":"2026-11-11T17:29:00.727Z","event":"Reply","campaign_id":"6af4a58fe40c267803a6684a","text":"NEGOCIAR"}""", WebhookChannels.Sms);
+
+        var r = await processor.ProcessPendingAsync(100, 1, CancellationToken.None);
+
+        Assert.Equal(1, r.Processed);
+        Assert.Equal(0, r.Rejected);
+        Assert.Equal(antes + 1, Sms.Respuestas);
+        Assert.Equal(antesEstados, Sms.Total);   // no se fue a la tabla de estados
+        Assert.Empty(inbox.Pendientes);
+    }
+
     private sealed class NoGateway : VoicesIntegration.Application.Abstractions.Sms.ISmsGateway
     {
         public Task<VoicesIntegration.Application.Abstractions.Sms.SmsMessageDetail?> GetMessageAsync(string id, CancellationToken ct)
@@ -181,6 +199,11 @@ public class WebhookInboxProcessorTests
             Interlocked.Add(ref _total, items.Count);
             return Task.FromResult<IReadOnlyList<bool>>(items.Select(_ => true).ToList());
         }
+
+        private int _respuestas;
+        public int Respuestas => _respuestas;
+        public Task<bool> RegisterReplyAsync(VoicesIntegration.Application.Abstractions.Persistence.SmsReplyToSave reply, CancellationToken ct)
+        { Interlocked.Increment(ref _respuestas); return Task.FromResult(true); }
     }
 
     private static (WebhookInboxProcessor, FakeInbox, FakeRepository) Crear()

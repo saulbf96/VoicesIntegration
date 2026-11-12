@@ -18,7 +18,20 @@ public interface ISmsRepository
     /// Devuelve, por posición, true si era nuevo. Si la BD rechaza el lote por un dato: <see cref="BatchRejectedException"/>.
     /// </summary>
     Task<IReadOnlyList<bool>> RegisterBatchAsync(IReadOnlyList<SmsToSave> items, CancellationToken cancellationToken);
+
+    /// <summary>Guarda una respuesta del cliente (SP 41). Devuelve false si ya existía (reenvío de Voices).</summary>
+    Task<bool> RegisterReplyAsync(SmsReplyToSave reply, CancellationToken cancellationToken);
 }
 
 /// <summary>Un aviso SMS listo para guardar (ya validado; detalle opcional).</summary>
 public sealed record SmsToSave(string RawPayload, byte[] PayloadHash, DateTimeOffset ReceivedAtUtc, SmsMessageDetail? Detail);
+
+/// <summary>Una respuesta del cliente a un SMS (event = "Reply"), ya validada.</summary>
+public sealed record SmsReplyToSave(
+    string? CampaignId,
+    string MessageId,
+    string Number,
+    string? Text,
+    DateTimeOffset? CreatedAtUtc,
+    byte[] PayloadHash,
+    DateTimeOffset ReceivedAtUtc);

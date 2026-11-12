@@ -37,6 +37,28 @@ internal sealed class SmsRepository(ISqlConnectionFactory connectionFactory) : I
 
     private static string? Truncate(string? v, int max) => v is null || v.Length <= max ? v : v[..max];
 
+    // ---- Respuestas del cliente (scripts 40/41) ----
+    private const string ReplyProcedure = "dbo.USP_GUARDAR_RESPUESTA_SMS_VOICES";
+
+    public async Task<bool> RegisterReplyAsync(SmsReplyToSave reply, CancellationToken cancellationToken)
+    {
+        var p = new DynamicParameters();
+        p.Add("@CampaignId", reply.CampaignId, DbType.AnsiString, size: 100);
+        p.Add("@MessageId", reply.MessageId, DbType.AnsiString, size: 100);
+        p.Add("@Number", reply.Number, DbType.AnsiString, size: 20);
+        p.Add("@Text", reply.Text, DbType.String, size: 1000);
+        p.Add("@CreatedAtUtc", reply.CreatedAtUtc?.UtcDateTime, DbType.DateTime2);
+        p.Add("@PayloadHash", reply.PayloadHash, DbType.Binary, size: 32);
+        p.Add("@ReceivedAtUtc", reply.ReceivedAtUtc.UtcDateTime, DbType.DateTime2);
+        p.Add("@IsDuplicate", dbType: DbType.Boolean, direction: ParameterDirection.Output);
+
+        await using var connection = connectionFactory.Create();
+        await connection.ExecuteAsync(new CommandDefinition(ReplyProcedure, p,
+            commandType: CommandType.StoredProcedure, commandTimeout: CommandTimeoutSeconds, cancellationToken: cancellationToken));
+
+        return !p.Get<bool>("@IsDuplicate");
+    }
+
     // ---- Por lotes (script 31): 1 transacción por lote en vez de 1 por SMS ----
     private const string BatchProcedure = "dbo.USP_GUARDAR_SMS_LOTE_VOICES";
     private const string BatchTableType = "dbo.TT_AVISOS_SMS_VOICES";

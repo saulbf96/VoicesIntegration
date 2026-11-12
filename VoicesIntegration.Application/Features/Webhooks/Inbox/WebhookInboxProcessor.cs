@@ -67,8 +67,9 @@ public sealed class WebhookInboxProcessor(
                 else if (item.Channel == WebhookChannels.Sms)
                 {
                     // SMS de un mensaje → por lotes (SP 31). "Resumen de lote" (type = BATCH) → uno por uno (SP 9), como antes.
+                    // Respuesta del cliente (event = Reply) → uno por uno (SP 41): poco volumen y otra tabla.
                     var payload = JsonSerializer.Deserialize<SmsWebhookPayload>(raw) ?? throw new DomainException("El aviso está vacío.");
-                    if (payload.IsBatch) others.Add((item, raw));
+                    if (payload.IsBatch || payload.IsReply) others.Add((item, raw));
                     else smsMensajes.Add((item, raw, payload));
                 }
                 else
