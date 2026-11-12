@@ -1,6 +1,71 @@
-@VoicesIntegration.Api_HostAddress = http://localhost:5034
+### Pruebas manuales desde Visual Studio
+### Las llaves se leen de tus user-secrets (ver http-client.env.json); nunca se escriben aquí.
+### Arriba a la derecha del editor elige el ambiente "dev".
 
-GET {{VoicesIntegration.Api_HostAddress}}/weatherforecast/
-Accept: application/json
+@host = http://localhost:5034
 
-###
+### 1) Salud de la API y de la BD (no pide llave)
+GET {{host}}/health
+
+### 2) Rutas de salida de Blaster (comprueba la API key de Voices)
+GET {{host}}/api/blaster/outbound-routes
+X-Api-Key: {{apiKey}}
+
+### 3) Simular el webhook de Voices (llamada contestada)
+POST {{host}}/webhooks/blaster/call-result
+Content-Type: application/json
+X-Webhook-Secret: {{webhookSecret}}
+
+{
+  "message_id": "prueba-001",
+  "status": "SENT",
+  "operator": "telcel",
+  "is_mobile": true,
+  "outbound_route": "90135",
+  "phone_number": "5544332211",
+  "sip_code": 200,
+  "sip_description": "OK",
+  "call_type": "initial",
+  "duration_minutes": 0,
+  "duration_seconds": 42
+}
+
+
+### 4) Consultar la llamada guardada
+GET {{host}}/api/blaster/calls/prueba-001
+X-Api-Key: {{apiKey}}
+
+### 5) Salud con detalle (BD + bandeja: pendientes / rechazados)
+GET {{host}}/health/detalle
+
+### 6) Estado de la bandeja de avisos
+GET {{host}}/api/blaster/inbox
+X-Api-Key: {{apiKey}}
+
+### 7) Simular webhook SMS "Message status"
+POST {{host}}/webhooks/sms/message-status
+Content-Type: application/json
+X-Webhook-Secret: {{webhookSecret}}
+
+{
+  "message_id": "prueba-sms-001",
+  "status": "SENT",
+  "datetime": "2026-11-04T16:00:01.000Z"
+}
+
+### 8) Simular webhook SMS "Batch status" (lote)
+POST {{host}}/webhooks/sms/message-status
+Content-Type: application/json
+X-Webhook-Secret: {{webhookSecret}}
+
+{
+  "type": "BATCH",
+  "batch_id": "prueba-lote-001",
+  "status": "COMPLETED",
+  "datetime": "2026-11-04T16:05:00Z",
+  "total": 2,
+  "messages": [
+    { "message_id": "prueba-sms-001", "status": "SENT", "datetime": "2026-11-04T16:00:01Z" },
+    { "message_id": "prueba-sms-002", "status": "FAILED", "datetime": "2026-11-04T16:00:03Z" }
+  ]
+}

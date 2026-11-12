@@ -5,7 +5,16 @@
       "commandName": "Project",
       "dotnetRunMessages": true,
       "launchBrowser": false,
-      "applicationUrl": "http://localhost:5034",
+      "applicationUrl": "http://localhost:5034;http://localhost:8093",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      }
+    },
+    "tunel": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "launchBrowser": false,
+      "applicationUrl": "http://localhost:8093",
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development"
       }
