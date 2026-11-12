@@ -77,8 +77,12 @@ public sealed record RecoveryJob
     public string Canal { get; init; } = RecoveryChannels.Blaster;
 }
 
+public sealed record RecoveryPage(int Total, IReadOnlyList<RecoveryJob> Items);
+
 public interface IRecoveryRepository
 {
+    Task<RecoveryPage> HistoryAsync(DateOnly? dia, string? canal, string? q, int page, int size, CancellationToken ct);
+
     Task CreateAsync(Guid jobId, string fileName, long sizeBytes, string? user, string canal, CancellationToken ct);
 
     Task<int> BulkLoadSmsAsync(Guid jobId, IAsyncEnumerable<SmsRecoveryRow> rows, Func<int, Task> onProgress, CancellationToken ct);

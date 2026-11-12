@@ -180,7 +180,7 @@ internal sealed class CsvRecoveryFileReader : IRecoveryFileReader
                     Channel: Cut(F(iChannel), 20),
                     PhoneNumber: Cut(F(iPhone), 20),
                     Type: Cut(F(iType), 20),
-                    Data: Empty(F(iData)),
+                    Data: Persistence.DatoCliente.Reducir(Empty(F(iData))),
                     Message: Empty(F(iMsg)),
                     CallAttempts: Int(F(iAttempts)),
                     DurationMinutes: Int(F(iDurMin)),

@@ -57,7 +57,7 @@ public sealed class RecoveryService(IRecoveryRepository repository, IRecoveryFil
             }
             logger.LogInformation("Recuperación {JobId}: {Total} filas leídas y comparadas en {Segundos:N0} s", jobId, total, sw.Elapsed.TotalSeconds);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException && !ct.IsCancellationRequested)
         {
             var msg = ex is DomainException ? ex.Message : "Error al procesar el archivo: " + ex.Message;
             logger.LogError(ex, "Recuperación {JobId} falló al revisar", jobId);
@@ -74,6 +74,7 @@ public sealed class RecoveryService(IRecoveryRepository repository, IRecoveryFil
         try
         {
             var job = await repository.GetAsync(jobId, ct);
+            if (job?.Estado == RecoveryStates.Cancelado) return;
             if (job is not null && RecoveryDayRule.WhyNot(job, inbox.GetStatus(), DateTimeOffset.UtcNow) is { } motivo)
                 throw new DomainException(motivo);
             await repository.UpdateAsync(jobId, RecoveryStates.Insertando, null, "Buscando lo que falta...", ct);
@@ -119,7 +120,7 @@ public sealed class RecoveryService(IRecoveryRepository repository, IRecoveryFil
                 $"Insertadas: {job?.Insertadas:N0} · Sin marcar por Voices: {job?.FilasSinMarcar:N0}\n" +
                 $"Rango del archivo: {job?.Desde:dd/MM/yyyy HH:mm} a {job?.Hasta:HH:mm} · Tiempo de inserción: {(int)sw.Elapsed.TotalMinutes} min {sw.Elapsed.Seconds} s");
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException && !ct.IsCancellationRequested)
         {
             logger.LogError(ex, "Recuperación {JobId} falló al insertar", jobId);
             var msg = ex is DomainException ? ex.Message : "Error al insertar (se puede reintentar): " + ex.Message;

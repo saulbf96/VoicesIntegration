@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Options;
@@ -39,12 +40,18 @@ public static class RecoveryEndpoints
             return Results.Accepted($"/api/recuperacion/{id}", new { jobId = id });
         });
 
-        g.MapPost("/{id:guid}/cancelar", async (Guid id, IRecoveryRepository repo, IOptions<RecoveryOptions> o, CancellationToken ct) =>
+        g.MapGet("/historial", HistoryAsync);
+
+        // Si esta corriendo se detiene y el worker lo deja en CANCELADO; lo ya insertado se queda
+        g.MapPost("/{id:guid}/cancelar", async (Guid id, IRecoveryRepository repo, RecoveryCancellations running,
+            IOptions<RecoveryOptions> o, CancellationToken ct) =>
         {
             var job = await repo.GetAsync(id, ct);
             if (job is null) return Results.NotFound();
-            if (job.Estado is RecoveryStates.Insertando or RecoveryStates.Terminado)
+            if (job.Estado is RecoveryStates.Terminado or RecoveryStates.Cancelado)
                 return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "No se puede cancelar", detail: $"Estado {job.Estado}.");
+            if (running.Cancel(id))
+                return Results.Accepted($"/api/recuperacion/{id}", job);
             await repo.CancelAsync(id, ct);
             foreach (var f in Directory.EnumerateFiles(o.Value.Path, id.ToString("N") + ".*"))
                 Application.Features.Recovery.RecoveryService.TryDelete(f);
@@ -52,6 +59,34 @@ public static class RecoveryEndpoints
         });
 
         return app;
+    }
+
+    private static readonly int[] PageSizes = [5, 10, 20];
+
+    private static async Task<IResult> HistoryAsync(string? dia, string? tipo, string? q, int? page, int? size,
+        IRecoveryRepository repo, CancellationToken ct)
+    {
+        DateOnly? d = null;
+        if (!string.IsNullOrWhiteSpace(dia))
+        {
+            if (!DateOnly.TryParseExact(dia, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var x))
+                return Results.Problem(statusCode: 400, title: "Día inválido", detail: "Usa el formato AAAA-MM-DD.");
+            d = x;
+        }
+
+        string? canal;
+        switch (tipo?.Trim().ToLowerInvariant())
+        {
+            case null or "" or "all": canal = null; break;
+            case "blaster": canal = RecoveryChannels.Blaster; break;
+            case "sms": canal = RecoveryChannels.Sms; break;
+            default: return Results.Problem(statusCode: 400, title: "Tipo inválido", detail: "El tipo debe ser all, blaster o sms.");
+        }
+
+        var p = Math.Max(1, page ?? 1);
+        var s = size is { } v && PageSizes.Contains(v) ? v : 10;
+        var r = await repo.HistoryAsync(d, canal, string.IsNullOrWhiteSpace(q) ? null : q.Trim(), p, s, ct);
+        return Results.Ok(new { total = r.Total, items = r.Items });
     }
 
     // El archivo se guarda directo a disco, puede pesar varios GB

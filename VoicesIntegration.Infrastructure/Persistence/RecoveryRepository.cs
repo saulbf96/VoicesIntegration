@@ -55,6 +55,17 @@ internal sealed class RecoveryRepository(ISqlConnectionFactory connectionFactory
             commandType: CommandType.StoredProcedure, commandTimeout: 30, cancellationToken: ct))).ToList();
     }
 
+    public async Task<RecoveryPage> HistoryAsync(DateOnly? dia, string? canal, string? q, int page, int size, CancellationToken ct)
+    {
+        await using var c = connectionFactory.Create();
+        using var r = await c.QueryMultipleAsync(new CommandDefinition("dbo.USP_RECUPERACION_HISTORIAL_VOICES",
+            new { Dia = dia?.ToDateTime(TimeOnly.MinValue), Canal = canal, Q = Cut(q, 260), Page = page, Size = size },
+            commandType: CommandType.StoredProcedure, commandTimeout: 30, cancellationToken: ct));
+        var total = await r.ReadSingleAsync<int>();
+        var items = (await r.ReadAsync<RecoveryJob>()).ToList();
+        return new RecoveryPage(total, items);
+    }
+
     public async Task<int> BulkLoadLightAsync(Guid jobId, IAsyncEnumerable<RecoveryRow> rows, Func<int, Task> onProgress, CancellationToken ct)
     {
         await using var c = connectionFactory.CreateForBulk();

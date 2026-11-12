@@ -3,438 +3,749 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Recuperar Voices</title>
+<title>Recuperar llamadas y mensajes de Voices · UNO</title>
+<link rel="icon" type="image/png" href="./uno-icono.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Roboto+Condensed:wght@600;700&display=swap" rel="stylesheet">
 <style>
-  :root { --bg:#f5f7fa; --card:#fff; --txt:#1f2933; --muted:#616e7c; --line:#e4e7eb; --pri:#2563eb; --ok:#15803d; --warn:#b45309; --err:#b91c1c; }
-  * { box-sizing: border-box; }
-  body { margin:0; font-family: Segoe UI, Roboto, Arial, sans-serif; background:var(--bg); color:var(--txt); }
-  header { background:#111827; color:#fff; padding:14px 24px; }
-  header h1 { margin:0; font-size:20px; font-weight:600; }
-  header p { margin:4px 0 0; color:#9ca3af; font-size:13px; }
-  main { max-width:1080px; margin:20px auto; padding:0 16px; display:grid; gap:16px; }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:18px 20px; }
-  .card h2 { margin:0 0 12px; font-size:16px; }
-  .row { display:flex; gap:12px; flex-wrap:wrap; align-items:end; }
-  label { display:flex; flex-direction:column; gap:4px; font-size:13px; color:var(--muted); }
-  input[type=text], input[type=password], input[type=date] { padding:8px 10px; border:1px solid var(--line); border-radius:6px; font-size:14px; min-width:220px; }
-  input[type=file] { font-size:14px; }
-  button { padding:9px 16px; border:0; border-radius:6px; background:var(--pri); color:#fff; font-size:14px; cursor:pointer; }
-  button.sec { background:#e5e7eb; color:var(--txt); }
-  button.ok { background:var(--ok); }
-  button:disabled { opacity:.5; cursor:not-allowed; }
-  .bar { height:10px; background:#e5e7eb; border-radius:5px; overflow:hidden; margin-top:10px; }
-  .bar > div { height:100%; width:0; background:var(--pri); transition:width .2s; }
-  .muted { color:var(--muted); font-size:13px; }
-  .grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap:10px; margin-top:12px; }
-  .kpi { border:1px solid var(--line); border-radius:8px; padding:10px 12px; }
-  .kpi b { display:block; font-size:22px; margin-top:2px; }
-  .kpi.hl { border-color:var(--pri); background:#eff6ff; }
-  table { width:100%; border-collapse:collapse; font-size:13px; }
-  th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
-  th { color:var(--muted); font-weight:600; }
-  .tag { padding:2px 8px; border-radius:10px; font-size:12px; font-weight:600; background:#e5e7eb; }
-  .tag.TERMINADO { background:#dcfce7; color:var(--ok); }
-  .tag.REVISADO { background:#dbeafe; color:var(--pri); }
-  .tag.ERROR { background:#fee2e2; color:var(--err); }
-  .tag.CANCELADO { background:#f3f4f6; color:var(--muted); }
-  .tag.LEYENDO, .tag.INSERTANDO, .tag.POR_INSERTAR, .tag.SUBIDO { background:#fef3c7; color:var(--warn); }
-  .msg { margin-top:10px; font-size:14px; }
-  .msg.err { color:var(--err); } .msg.ok { color:var(--ok); }
-  .hidden { display:none; }
-  #overlay { position:fixed; inset:0; background:rgba(17,24,39,.55); display:flex; align-items:center; justify-content:center; z-index:50; }
-  #overlay.hidden { display:none; }
-  .ovbox { background:#fff; border-radius:12px; padding:28px 36px; text-align:center; min-width:320px; box-shadow:0 10px 30px rgba(0,0,0,.25); }
-  .spinner { width:56px; height:56px; border:6px solid #dbeafe; border-top-color:var(--pri); border-radius:50%; margin:0 auto 14px; animation:gira 0.9s linear infinite; }
-  @keyframes gira { to { transform:rotate(360deg); } }
-  .ovtitulo { font-size:18px; font-weight:600; }
-  .ovdet { color:var(--muted); font-size:14px; margin-top:6px; }
-  .ovnota { color:var(--muted); font-size:12px; margin-top:10px; }
-  #modal { position:fixed; inset:0; background:rgba(17,24,39,.55); display:flex; align-items:center; justify-content:center; z-index:60; }
-  #modal.hidden { display:none; }
-  #modal .ovbox { max-width:440px; }
-  .mdicono { font-size:40px; line-height:1; margin-bottom:10px; }
-  .mdicono:empty { display:none; }
-  .mdbotones { display:flex; gap:10px; justify-content:center; margin-top:18px; flex-wrap:wrap; }
-  .estado-mal { color:var(--err); font-weight:600; }
+:root{
+  --navy:#003087; --navy-deep:#012169; --navy-tint:#E8EEF8; --navy-text-2:#3D5590;
+  --gold:#B8913A; --header-muted:#D6E4F5;
+  --bg:#F5F3EF; --surface:#FFFFFF; --surface-2:#FAF8F4; --thead:#F7F4EE;
+  --border:#DDD8CF; --divider:#E8E3DA; --row:#EFEBE4; --input:#C4BDB1; --drop:#B9AE9C;
+  --text:#2B2A28; --text-2:#57504A; --muted:#6B645A;
+  --ok:#1E6B34; --ok-dot:#2E8B57;
+  --warn:#7A4F00; --warn-bg:#FFF1CC; --warn-dot:#E0A21B;
+  --err:#B42318; --err-bg:#FDE8E6; --err-dot:#D92D20;
+  --r-sm:4px; --r-md:6px; --r-lg:8px;
+  --font:Roboto,Arial,sans-serif; --font-head:'Roboto Condensed',Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;background:var(--bg);font-family:var(--font);color:var(--text);font-size:14px}
+a{color:var(--navy)}a:hover{color:var(--navy-deep)}
+h1,h2{font-family:var(--font-head);font-weight:700;color:var(--navy-deep);margin:0}
+.wrap{max-width:1240px;margin:0 auto;padding:0 32px}
+.muted{color:var(--muted)}
+button{font:inherit;cursor:pointer}
+button:disabled{opacity:.45;cursor:not-allowed}
+:focus-visible{outline:2px solid var(--navy);outline-offset:2px}
+
+.app-header{background:var(--navy);color:#fff;border-bottom:3px solid var(--gold)}
+.app-header .wrap{min-height:64px;display:flex;flex-wrap:wrap;align-items:center;gap:20px}
+.app-header img{height:34px;display:block}
+.vsep{width:1px;height:28px;background:rgba(255,255,255,.3)}
+.app-name{flex:1 1 200px;font-size:14px;font-weight:500;letter-spacing:.4px;color:var(--header-muted)}
+.status-btn{height:36px;padding:0 14px;display:inline-flex;align-items:center;gap:10px;border:1px solid rgba(255,255,255,.35);border-radius:var(--r-sm);background:rgba(255,255,255,.08);color:#fff;font-size:13px;font-weight:500}
+.dot{width:10px;height:10px;border-radius:50%;display:inline-block}
+.dot.healthy{background:#3FB56B;box-shadow:0 0 0 3px rgba(63,181,107,.25)}
+.dot.degraded{background:#F5B83D;box-shadow:0 0 0 3px rgba(245,184,61,.25)}
+.dot.unhealthy{background:#F04438;box-shadow:0 0 0 3px rgba(240,68,56,.25)}
+
+.status-panel{background:var(--surface);border-bottom:1px solid var(--border)}
+.status-panel .wrap{padding-top:20px;padding-bottom:20px;display:flex;flex-direction:column;gap:14px}
+.row-between{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px}
+.tag{font-size:11px;font-weight:700;letter-spacing:.8px;padding:4px 8px;border-radius:3px}
+.tag.healthy{background:#E3F3E8;color:var(--ok)}.tag.degraded{background:var(--warn-bg);color:var(--warn)}.tag.unhealthy{background:var(--err-bg);color:var(--err)}
+.services{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px}
+.svc{border:1px solid var(--border);border-radius:var(--r-sm);display:flex;overflow:hidden}
+.svc .bar{width:4px}.svc.healthy .bar{background:var(--ok-dot)}.svc.degraded .bar{background:var(--warn-dot)}.svc.unhealthy .bar{background:var(--err-dot)}
+.svc .body{flex:1;padding:14px 16px;display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px}
+.svc .name{font-size:15px;font-weight:500;flex:1 1 180px}
+.svc .name small{display:block;font-size:13px;font-weight:400;color:var(--muted)}
+.svc .state{font-size:12px;font-weight:700}
+.svc.healthy .state{color:var(--ok)}.svc.degraded .state{color:var(--warn)}.svc.unhealthy .state{color:var(--err)}
+.svc .data{flex-basis:100%;display:flex;flex-wrap:wrap;gap:8px 24px;padding-top:10px;border-top:1px solid var(--row);font-size:13px;color:var(--muted)}
+.svc .data strong{color:var(--text)}
+.icon-btn{width:32px;height:32px;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:var(--r-sm);background:transparent;color:var(--muted)}
+
+.page-head{background:var(--surface);border-bottom:1px solid var(--border)}
+.page-head .wrap{padding-top:22px;padding-bottom:22px;display:flex;flex-direction:column;gap:6px}
+.page-head h1{font-size:28px}
+.page-head p{margin:0;color:var(--muted)}
+
+main.wrap{padding-top:28px;padding-bottom:28px;display:flex;flex-direction:column;gap:24px}
+.cols{display:flex;flex-wrap:wrap;gap:24px;align-items:stretch}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-md);display:flex;flex-direction:column}
+.card-head{padding:16px 24px;border-bottom:1px solid var(--divider);display:flex;flex-wrap:wrap;align-items:center;gap:12px}
+.card-head h2{font-size:18px}
+.card-body{padding:20px 24px 24px;display:flex;flex-direction:column;gap:16px}
+.step{width:28px;height:28px;border-radius:var(--r-sm);background:var(--navy);color:#fff;font-family:var(--font-head);font-weight:700;font-size:15px;display:flex;align-items:center;justify-content:center}
+.field{display:flex;flex-direction:column;gap:6px}
+.field label,.field .lbl{font-size:13px;font-weight:500}
+.input{height:44px;padding:0 12px;border:1px solid var(--input);border-radius:var(--r-sm);font:inherit;font-size:15px;color:var(--text);background:#fff}
+.btn{height:44px;padding:0 22px;border-radius:var(--r-sm);font-size:14px;font-weight:500;letter-spacing:.5px;text-transform:uppercase}
+.btn-primary{border:0;background:var(--navy);color:#fff}.btn-primary:hover{background:var(--navy-deep)}
+.btn-outline{border:1px solid var(--navy);background:#fff;color:var(--navy)}
+.btn-sm{height:36px;padding:0 14px;font-size:13px;text-transform:none;letter-spacing:0}
+.btn-ghost{border:1px solid var(--input);background:#fff;color:var(--text)}
+.btn-danger-outline{border:1px solid var(--err);background:#fff;color:var(--err)}
+.btn-danger{border:0;background:var(--err);color:#fff}
+.seg{display:inline-flex;border:1px solid var(--navy);border-radius:var(--r-sm);overflow:hidden}
+.seg button{height:36px;padding:0 16px;border:0;background:#fff;color:var(--navy);font-size:13px;font-weight:500}
+.seg button[aria-pressed="true"]{background:var(--navy);color:#fff}
+.seg.neutral{border-color:var(--input)}.seg.neutral button{height:34px;padding:0 14px;color:var(--text)}
+.seg.neutral button[aria-pressed="true"]{color:#fff}
+.drop{position:relative;display:flex;align-items:center;gap:16px;padding:20px;border:1px dashed var(--drop);border-radius:var(--r-sm);background:var(--surface-2);cursor:pointer}
+.drop.over{border-color:var(--navy);background:var(--navy-tint)}
+.drop input{position:absolute;width:1px;height:1px;opacity:0}
+.drop .ico{width:44px;height:44px;border-radius:var(--r-sm);background:var(--navy-tint);display:flex;align-items:center;justify-content:center;flex:none}
+.drop strong{font-size:15px;font-weight:500}.drop u{color:var(--navy)}
+.progress{height:8px;border-radius:2px;background:var(--divider);overflow:hidden}
+.progress>div{height:100%;background:var(--navy);transition:width .4s}
+.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border:1px solid var(--divider);border-radius:var(--r-sm)}
+.kpi{padding:14px 20px;display:flex;flex-direction:column;gap:2px;border-right:1px solid var(--divider)}
+.kpi:last-child{border-right:0}
+.kpi span{font-size:12px;letter-spacing:.5px;text-transform:uppercase;color:var(--muted)}
+.kpi b{font-family:var(--font-head);font-size:26px;font-weight:700}
+.kpi.hl span{color:var(--navy-text-2)}.kpi.hl b{color:var(--navy)}
+.kpi .dates{font-size:14px;font-weight:500;line-height:1.4}
+.msg{margin:0;font-size:14px;line-height:1.5}
+.msg:empty{display:none}
+.msg.ok{color:var(--ok);font-weight:500}.msg.err{color:var(--err);font-weight:500}.msg.warn{color:var(--warn);font-weight:500}
+.msg ul{margin:6px 0 0;padding-left:20px}
+.msg .mal{color:var(--err)}
+
+.filters{padding:14px 24px;border-bottom:1px solid var(--divider);background:var(--surface-2);display:flex;flex-wrap:wrap;align-items:flex-end;gap:16px}
+.filters .field label,.filters .field .lbl{font-size:12px;color:var(--text-2)}
+.filters .input{height:36px;font-size:13px;padding:0 10px}
+.search{position:relative}.search svg{position:absolute;left:10px;top:11px}.search .input{width:100%;padding-left:32px}
+.link-btn{border:0;background:transparent;color:var(--navy);font-size:13px;font-weight:500;text-decoration:underline;height:36px}
+.table-wrap{overflow-x:auto}
+table{width:100%;min-width:980px;border-collapse:collapse}
+th{text-align:left;background:var(--thead);color:var(--text-2);font-size:12px;text-transform:uppercase;letter-spacing:.5px;font-weight:700;padding:11px 12px;border-bottom:1px solid var(--border)}
+td{padding:13px 12px;border-bottom:1px solid var(--row);vertical-align:top}
+#hist-body tr[data-id]{cursor:pointer}
+#hist-body tr[data-id]:hover td{background:var(--surface-2)}
+th:first-child,td:first-child{padding-left:24px}th:last-child,td:last-child{padding-right:24px}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+td small{display:block;font-size:12px;color:var(--muted)}
+.st{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;letter-spacing:.4px}
+.st i{width:8px;height:8px;border-radius:50%}
+.st.ok{color:var(--ok)}.st.ok i{background:var(--ok-dot)}
+.st.run{color:var(--warn)}.st.run i{background:var(--warn-dot)}
+.st.err{color:var(--err)}.st.err i{background:var(--err-dot)}
+.empty td{text-align:center;padding:36px 24px;color:var(--muted)}
+.pager{padding:12px 24px;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:16px;font-size:13px;color:var(--muted)}
+.pager select{height:34px;padding:0 8px;border:1px solid var(--input);border-radius:var(--r-sm);font:inherit;font-size:13px;background:#fff}
+.pages{display:flex;gap:4px}
+.pages button{min-width:34px;height:34px;padding:0 8px;border:1px solid var(--input);border-radius:var(--r-sm);background:#fff;color:var(--text);font-size:13px;font-weight:500}
+.pages button[aria-current="page"]{background:var(--navy);border-color:var(--navy);color:#fff;font-weight:700}
+footer{display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px;padding:4px 4px 24px;font-size:12px;color:var(--muted)}
+
+.backdrop{position:fixed;inset:0;background:rgba(20,24,38,.55);display:flex;align-items:center;justify-content:center;padding:16px;z-index:50}
+.backdrop[hidden]{display:none}
+.dialog{width:100%;max-width:520px;background:#fff;border-radius:var(--r-lg);border-top:4px solid var(--navy);box-shadow:0 24px 60px rgba(10,14,30,.35);overflow:hidden}
+.dialog .dbody{padding:32px 36px 24px;display:flex;flex-direction:column;gap:14px}
+.dialog .dbody.center{align-items:center;text-align:center}
+.dialog h2{font-size:22px}
+.dialog .dfoot{padding:16px 36px;background:var(--surface-2);border-top:1px solid var(--divider);display:flex;justify-content:space-between;gap:12px}
+.dialog .dfoot.end{justify-content:flex-end}
+.spinner{width:52px;height:52px;border-radius:50%;border:4px solid var(--divider);border-top-color:var(--navy);animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spinner{animation-duration:3s}}
+@media (max-width:720px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.kpi:nth-child(2){border-right:0}.wrap{padding:0 16px}}
 </style>
 </head>
 <body>
-<header>
-  <h1>Recuperar llamadas y mensajes de Voices</h1>
-  <p>Sube el reporte de Voices del día que falló. Solo se agrega lo que falta.</p>
+
+<header class="app-header">
+  <div class="wrap">
+    <img src="./uno-logo-white.png" alt="UNO Contact Solutions Bureau">
+    <div class="vsep"></div>
+    <span class="app-name">Herramientas internas · Operaciones</span>
+    <button type="button" class="status-btn" id="status-btn" aria-expanded="false" aria-controls="status-panel">
+      <span class="dot" id="status-dot"></span>
+      <span>Estado del sistema: <span id="status-label">…</span></span>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+    </button>
+  </div>
 </header>
-     
 
-<main>
-  <section class="card hidden" id="cardAcceso">
-    <h2>Acceso</h2>
-    <div class="row">
-      <label id="keyBox" class="hidden">API Key (solo fuera de la red interna) <input id="apiKey" type="password" autocomplete="off" placeholder="X-Api-Key"></label>
-      <span class="muted" id="accesoInfo">Desde la red de la empresa no hace falta llave.</span>
+<section class="status-panel" id="status-panel" aria-label="Estado del sistema" hidden>
+  <div class="wrap">
+    <div class="row-between">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span class="tag" id="status-tag"></span>
+        <h2 style="font-size:17px">Estado general de los servicios</h2>
+      </div>
+      <div style="display:flex;align-items:center;gap:16px;font-size:13px">
+        <a id="health-link" href="#" target="_blank" rel="noopener" style="font-weight:500">Ver respuesta completa</a>
+        <button type="button" class="icon-btn" id="status-close" aria-label="Cerrar estado del sistema">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
     </div>
-  </section>
+    <div class="services" id="services"></div>
+  </div>
+</section>
 
-  <section class="card">
-    <h2>¿Faltan llamadas o SMS?</h2>
-    <div class="row">
-      <label>Día <input id="fechaHuecos" type="date"></label>
-      <button class="sec" id="btnHuecos">Revisar día</button>
-    </div>
-    <div id="huecos" class="msg muted"></div>
-  </section>
-
-  <section class="card">
-    <h2>Subir reporte</h2>
-    <p class="muted">Reporte de campañas de Voices del día completo (.csv o .zip).</p>
-    <div class="row">
-      <label>Tipo
-        <select id="canal">
-          <option value="BLASTER">Llamadas (Blaster)</option>
-          <option value="SMS">Mensajes (SMS)</option>
-        </select>
-      </label>
-      <input id="archivo" type="file" accept=".csv,.zip">
-      <button id="btnSubir">Subir y revisar</button>
-    </div>
-    <div class="bar"><div id="barra"></div></div>
-    <div id="msgSubida" class="msg muted"></div>
-  </section>
-
-  <section class="card hidden" id="cardResultado">
-    <h2>Resultado <span id="estadoTag" class="tag"></span></h2>
-    <div class="muted" id="archivoInfo"></div>
-    <div class="grid">
-      <div class="kpi">Registros en el archivo<b id="kLeidas">–</b></div>
-      <div class="kpi">Ya estaban guardadas<b id="kExistian">–</b></div>
-      <div class="kpi hl">Faltan (se agregarán)<b id="kFaltan">–</b></div>
-      <div class="kpi"><span id="lSinMarcar">Voices no las marcó</span><b id="kSinMarcar">–</b><span class="muted">(no se agregan)</span></div>
-      <div class="kpi">Fechas del archivo<b id="kRango" style="font-size:14px">–</b></div>
-    </div>
-    <div class="row" style="margin-top:14px">
-      <button class="ok" id="btnInsertar" disabled>Insertar faltantes</button>
-      <button class="sec" id="btnCancelar" disabled>Cancelar</button>
-    </div>
-    <div id="msgResultado" class="msg"></div>
-  </section>
-
-  <section class="card">
-    <h2>Historial <button class="sec" id="btnHistorial" style="float:right;padding:5px 12px">Actualizar</button></h2>
-    <table>
-      <thead><tr><th>Subido</th><th>Archivo</th><th>Estado</th><th>Leídas</th><th>Faltaban</th><th>Insertadas</th><th>Mensaje</th></tr></thead>
-      <tbody id="historial"><tr><td colspan="7" class="muted">Cargando...</td></tr></tbody>
-    </table>
-  </section>
-</main>
-
-<div id="overlay" class="hidden" role="status" aria-live="polite">
-  <div class="ovbox">
-    <div class="spinner"></div>
-    <div class="ovtitulo" id="ovTitulo">Leyendo...</div>
-    <div class="ovdet" id="ovDetalle"></div>
-    <div class="ovnota">Puedes dejar esta página abierta; se actualiza sola.</div>
+<div class="page-head">
+  <div class="wrap">
+    <h1>Recuperar llamadas y mensajes de Voices</h1>
+    <p>Sube el reporte de Voices del día que falló. Solo se agrega lo que falta.</p>
   </div>
 </div>
 
-<div id="modal" class="hidden" role="dialog" aria-modal="true">
-  <div class="ovbox">
-    <div class="mdicono" id="mdIcono"></div>
-    <div class="ovtitulo" id="mdTitulo"></div>
-    <div class="ovdet" id="mdTexto"></div>
-    <div class="mdbotones" id="mdBotones"></div>
+<main class="wrap">
+  <section class="card" id="access-card" hidden>
+    <div class="card-head"><h2>Acceso</h2></div>
+    <div class="card-body">
+      <div class="field">
+        <label for="api-key">API Key (solo fuera de la red interna)</label>
+        <input id="api-key" class="input" type="password" autocomplete="off" placeholder="X-Api-Key" style="max-width:360px">
+      </div>
+    </div>
+  </section>
+
+  <div class="cols">
+    <section class="card" style="flex:1 1 340px">
+      <div class="card-head"><span class="step">1</span><h2>Verificar registros faltantes del día</h2></div>
+      <div class="card-body">
+        <p class="muted" style="margin:0">Compara las llamadas y SMS guardados contra lo registrado en Voices.</p>
+        <div class="field">
+          <label for="dia">Día</label>
+          <div style="display:flex;flex-wrap:wrap;gap:12px">
+            <input id="dia" class="input" type="date" style="flex:1 1 180px">
+            <button type="button" class="btn btn-outline" id="btn-revisar">Revisar día</button>
+          </div>
+        </div>
+        <div class="msg" id="huecos" aria-live="polite"></div>
+      </div>
+    </section>
+
+    <section class="card" style="flex:2 1 520px">
+      <div class="card-head"><span class="step">2</span><h2>Cargar reporte de Voices para recuperar faltantes</h2></div>
+      <div class="card-body">
+        <div class="row-between">
+          <p class="muted" style="margin:0">Reporte de campañas de Voices del día completo (.csv o .zip).</p>
+          <div class="seg" role="group" aria-label="Tipo de reporte" id="tipo-upload">
+            <button type="button" data-v="blaster" aria-pressed="true">Llamadas (Blaster)</button>
+            <button type="button" data-v="sms" aria-pressed="false">SMS</button>
+          </div>
+        </div>
+        <label class="drop" for="archivo" id="drop">
+          <span class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#003087" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M12 18v-6M9 15l3-3 3 3"/></svg></span>
+          <span style="display:flex;flex-direction:column;gap:2px">
+            <strong id="drop-title">Arrastra aquí el reporte o <u>selecciona un archivo</u></strong>
+            <span class="muted" style="font-size:13px">CSV o ZIP · reporte de <span id="tipo-label">llamadas</span> del día completo</span>
+          </span>
+          <input id="archivo" type="file" accept=".csv,.zip">
+        </label>
+        <p class="msg" id="upload-msg" aria-live="polite"></p>
+        <div style="display:flex;justify-content:flex-end">
+          <button type="button" class="btn btn-primary" id="btn-subir">Subir y revisar</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <section class="card" id="job-card" hidden>
+    <div class="card-head" style="justify-content:space-between">
+      <div style="display:flex;align-items:center;gap:12px">
+        <h2>Carga en proceso</h2>
+        <span class="tag degraded" id="job-tag">INSERTANDO</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+        <span class="muted" style="font-size:13px" id="job-meta"></span>
+        <button type="button" class="btn btn-sm btn-danger-outline" id="btn-cancel-job">Cancelar inserción</button>
+      </div>
+    </div>
+    <div class="card-body">
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div class="row-between"><span><strong id="job-done">0</strong> de <span id="job-total">0</span> registros insertados</span><b style="color:var(--navy)" id="job-pct">0%</b></div>
+        <div class="progress" role="progressbar" aria-label="Avance de inserción" aria-valuemin="0" aria-valuemax="100" id="job-bar"><div style="width:0%"></div></div>
+      </div>
+      <div class="kpis">
+        <div class="kpi"><span>Leídas</span><b id="k-leidas">—</b></div>
+        <div class="kpi"><span>Faltaban</span><b id="k-faltaban">—</b></div>
+        <div class="kpi hl"><span>Insertadas</span><b id="k-insertadas">—</b></div>
+        <div class="kpi"><span>Fechas del archivo</span><div class="dates" id="k-fechas">—</div></div>
+      </div>
+      <div class="row-between">
+        <p class="msg muted" id="job-msg"></p>
+        <button type="button" class="btn btn-primary" id="btn-insertar" hidden>Insertar faltantes</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-head" style="justify-content:space-between">
+      <h2>Historial de cargas</h2>
+      <div style="display:flex;align-items:center;gap:12px">
+        <span class="muted" style="font-size:12px" id="refresh-info" aria-live="polite"></span>
+        <button type="button" class="btn btn-sm btn-ghost" id="btn-refresh">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" style="vertical-align:-3px;margin-right:6px"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg><span id="refresh-txt">Actualizar</span>
+        </button>
+      </div>
+    </div>
+    <div class="filters" role="search" aria-label="Filtrar historial">
+      <div class="field"><label for="f-dia">Día de carga</label><input id="f-dia" class="input" type="date"></div>
+      <div class="field"><span class="lbl">Tipo</span>
+        <div class="seg neutral" role="group" aria-label="Filtrar por tipo" id="f-tipo">
+          <button type="button" data-v="all" aria-pressed="true">Todos</button>
+          <button type="button" data-v="blaster" aria-pressed="false">Llamadas</button>
+          <button type="button" data-v="sms" aria-pressed="false">SMS</button>
+        </div>
+      </div>
+      <div class="field" style="flex:1 1 240px"><label for="f-q">Buscar archivo</label>
+        <div class="search">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#6B645A" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+          <input id="f-q" class="input" type="search" placeholder="Ej. unificado-blaster-6af13ef9">
+        </div>
+      </div>
+      <button type="button" class="link-btn" id="f-clear">Limpiar filtros</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Subido</th><th>Archivo</th><th>Estado</th><th class="num">Leídas</th><th class="num">Faltaban</th><th class="num">Insertadas</th><th>Mensaje</th></tr></thead>
+        <tbody id="hist-body"></tbody>
+      </table>
+    </div>
+    <div class="pager">
+      <div style="display:flex;align-items:center;gap:10px">
+        <label for="per-page">Filas por página</label>
+        <select id="per-page"><option>5</option><option selected>10</option><option>20</option></select>
+        <span id="pager-info"></span>
+      </div>
+      <nav class="pages" aria-label="Paginación del historial" id="pages"></nav>
+    </div>
+  </section>
+
+  <footer>
+    <span>© UNO Contact Solutions Bureau · Comunicación multicanal en un solo lugar</span>
+    <span>Los archivos subidos se conservan 2 días en el servidor.</span>
+  </footer>
+</main>
+
+<div class="backdrop" id="dlg" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dlg-title">
+    <div data-step="running">
+      <div class="dbody center">
+        <div class="spinner" aria-hidden="true"></div>
+        <h2 id="dlg-title">Insertando registros faltantes</h2>
+        <p class="muted" style="margin:0" id="dlg-file"></p>
+        <div style="width:100%;display:flex;flex-direction:column;gap:8px;margin-top:6px">
+          <div class="row-between"><span><strong id="dlg-done">0</strong> de <span id="dlg-total">0</span></span><b style="color:var(--navy)" id="dlg-pct">0%</b></div>
+          <div class="progress" id="dlg-bar"><div style="width:0%"></div></div>
+        </div>
+        <p class="muted" style="margin:4px 0 0;font-size:13px">Puedes dejar esta página abierta; el avance se actualiza solo.</p>
+      </div>
+      <div class="dfoot">
+        <button type="button" class="btn btn-sm btn-danger-outline" data-act="ask-cancel">Cancelar inserción</button>
+        <button type="button" class="btn btn-sm btn-ghost" data-act="hide">Seguir en segundo plano</button>
+      </div>
+    </div>
+    <div data-step="confirm" hidden>
+      <div class="dbody">
+        <h2 style="color:var(--text)">¿Cancelar la inserción?</h2>
+        <p style="margin:0;line-height:1.5;color:var(--text-2)">Se detendrá la inserción de los registros que faltan. Hasta ahora se insertaron <strong id="dlg-c-done"></strong>. Podrás ver el resultado en el historial y volver a subir el reporte si lo necesitas.</p>
+      </div>
+      <div class="dfoot end">
+        <button type="button" class="btn btn-sm btn-ghost" data-act="back">No, continuar</button>
+        <button type="button" class="btn btn-sm btn-danger" data-act="confirm-cancel">Sí, cancelar inserción</button>
+      </div>
+    </div>
+    <div data-step="insert" hidden>
+      <div class="dbody">
+        <h2 style="color:var(--text)" id="dlg-i-title"></h2>
+        <p style="margin:0;line-height:1.5;color:var(--text-2)" id="dlg-i-text"></p>
+      </div>
+      <div class="dfoot end">
+        <button type="button" class="btn btn-sm btn-ghost" data-act="hide">No</button>
+        <button type="button" class="btn btn-sm btn-primary" data-act="confirm-insert">Sí, agregar</button>
+      </div>
+    </div>
+    <div data-step="cancelled" hidden>
+      <div class="dbody center">
+        <h2 style="color:var(--text)">Inserción cancelada</h2>
+        <p class="muted" style="margin:0" id="dlg-x-msg"></p>
+      </div>
+      <div class="dfoot end"><button type="button" class="btn btn-sm btn-primary" data-act="hide">Volver al historial</button></div>
+    </div>
   </div>
 </div>
 
 <script>
-(() => {
-  const $ = id => document.getElementById(id);
-  const n = v => (v === null || v === undefined) ? '–' : Number(v).toLocaleString('es-MX');
-  const f = v => v ? new Date(v).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' }) : '–';
-  const store = { get: k => { try { return sessionStorage.getItem(k) || ''; } catch { return ''; } },
-                  set: (k, v) => { try { sessionStorage.setItem(k, v); } catch {} } };
-  let jobId = null, timer = null, finAvisado = false, canalActual = 'BLASTER';
-  const palabra = () => canalActual === 'SMS' ? 'mensajes' : 'llamadas';
+const API = {
+  health:  '/health/detalle',
+  list:    '/api/recuperacion/',
+  history: '/api/recuperacion/historial',
+  job:     id => `/api/recuperacion/${id}`,
+  insert:  id => `/api/recuperacion/${id}/insertar`,
+  cancel:  id => `/api/recuperacion/${id}/cancelar`,
+  upload:  '/api/recuperacion/',
+  checkDay:'/api/reportes/huecos'
+};
+const POLL_MS = 3000;
+const ACTIVE = ['SUBIDO', 'LEYENDO', 'POR_INSERTAR', 'INSERTANDO'];
 
-  $('apiKey').value = store.get('apiKey');
-  $('apiKey').addEventListener('change', e => store.set('apiKey', e.target.value.trim()));
-  // Solo se revisan dias terminados: maximo ayer (fecha local, no UTC)
-  const ayerLocal = () => new Date(Date.now() - 864e5).toLocaleDateString('en-CA');
-  $('fechaHuecos').max = ayerLocal(); $('fechaHuecos').value = ayerLocal();
+const $ = s => document.querySelector(s);
+const fmt = n => Number(n||0).toLocaleString('en-US');
+const fmtDate = iso => { if(!iso) return '—'; const d=new Date(iso); return d.toLocaleDateString('es-MX',{day:'2-digit',month:'2-digit',year:'2-digit'})+' · '+d.toLocaleTimeString('es-MX',{hour:'numeric',minute:'2-digit'}); };
+const esc = s => String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const shortName = f => f.length>36 ? f.slice(0,26)+'…'+f.slice(-12) : f;
+const TIPO = {blaster:'Llamadas', sms:'SMS'};
+const LEVEL = {Healthy:'healthy', Degraded:'degraded', Unhealthy:'unhealthy'};
+const LEVEL_TXT = {Healthy:'Operando', Degraded:'Degradado', Unhealthy:'Caído'};
+const store = { get: k => { try { return sessionStorage.getItem(k) || ''; } catch { return ''; } },
+                set: (k, v) => { try { sessionStorage.setItem(k, v); } catch {} } };
 
-  const key = () => $('apiKey').value.trim();
-  async function api(path, opts = {}) {
-    const h = { ...(opts.headers || {}) }; if (key()) h['X-Api-Key'] = key();
-    const r = await fetch(path, { ...opts, headers: h });
-    if (r.status === 401) { pedirLlave(); throw new Error('Estás fuera de la red interna: escribe la API Key arriba.'); }
-    const body = r.headers.get('content-type')?.includes('json') ? await r.json() : null;
-    if (!r.ok) throw new Error(body?.detail || body?.title || ('Error ' + r.status));
-    return body;
-    }
+const toJob = j => ({ id:j.jobId, subido:j.fechaSubida, tipo:(j.canal||'BLASTER').toLowerCase(), archivo:j.archivo||'', estado:j.estado,
+  leidas:j.filasLeidas, faltaban:j.faltantes, insertadas:j.insertadas, mensaje:j.mensaje, fecha_min:j.desde, fecha_max:j.hasta,
+  yaExistian:j.yaExistian, sinMarcar:j.filasSinMarcar, aNum:j.aNumActualizados, tamano:j.tamanoBytes });
 
-  function pedirLlave() { $('cardAcceso').classList.remove('hidden'); $('keyBox').classList.remove('hidden'); $('accesoInfo').textContent = 'Fuera de la red interna se necesita la API Key.'; }
-  if (key()) pedirLlave();
-  const ESTADOS = {
-    SUBIDO: 'Archivo recibido, preparando...', LEYENDO: 'Leyendo el archivo...', POR_INSERTAR: 'En cola para insertar...',
-    INSERTANDO: 'Insertando lo que falta...'
+const apiKey = () => $('#api-key').value.trim();
+function askKey(){ $('#access-card').hidden = false; }
+$('#api-key').value = store.get('apiKey');
+$('#api-key').onchange = e => { store.set('apiKey', e.target.value.trim()); loadHistory(); resumeActive(); };
+if (apiKey()) askKey();
+async function api(url, opts = {}){
+  const h = { ...(opts.headers||{}) }; if (apiKey()) h['X-Api-Key'] = apiKey();
+  const r = await fetch(url, { ...opts, headers: h });
+  if (r.status === 401){ askKey(); throw new Error('Estás fuera de la red interna: escribe la API Key arriba.'); }
+  const body = r.headers.get('content-type')?.includes('json') ? await r.json() : null;
+  if (!r.ok) throw new Error(body?.detail || body?.title || ('Error ' + r.status));
+  return body;
+}
+function msg(el, text, cls=''){ el.textContent = text; el.className = 'msg ' + cls; }
+
+/* ---------- Estado del sistema ---------- */
+const SVC_NAMES = {database:'Base de datos', inbox:'Inbox'};
+const DATA_LABELS = {pendientes:'Pendientes', rechazados:'Rechazados', disco_libre_mb:'Disco libre', pendiente_mas_viejo_utc:'Pendiente más antiguo'};
+let lastHealth = null;
+function renderHealth(h){
+  lastHealth = h;
+  const lvl = LEVEL[h.estado] || 'unhealthy';
+  $('#status-dot').className = 'dot '+lvl;
+  $('#status-label').textContent = LEVEL_TXT[h.estado] || h.estado;
+  const tag = $('#status-tag'); tag.className='tag '+lvl; tag.textContent=(LEVEL_TXT[h.estado]||h.estado).toUpperCase();
+  $('#health-link').href = API.health;
+  $('#services').innerHTML = Object.entries(h.revisiones||{}).map(([k,s])=>{
+    const l = LEVEL[s.estado]||'unhealthy';
+    const datos = Object.entries(s.datos||{}).map(([dk,dv])=>{
+      const v = dk==='disco_libre_mb' ? (dv/1024).toFixed(1)+' GB' : dk.endsWith('_utc') ? fmtDate(dv) : typeof dv==='number' ? fmt(dv) : dv;
+      const red = dk==='rechazados' && dv>0 ? ' style="color:var(--err)"' : '';
+      return `<span>${esc(DATA_LABELS[dk]||dk)} <strong${red}>${esc(v)}</strong></span>`;
+    }).join('');
+    return `<div class="svc ${l}"><div class="bar"></div><div class="body">
+      <div class="name">${esc(SVC_NAMES[k]||k)}<small>${esc(s.mensaje||'Sin incidencias')}</small></div>
+      <span class="state">${esc((LEVEL_TXT[s.estado]||s.estado).toUpperCase())}</span>
+      ${datos?`<div class="data">${datos}</div>`:''}</div></div>`;
+  }).join('');
+  if (h.estado !== 'Healthy' && !store.get('unoStatusSeen')) toggleStatus(true);
+}
+function toggleStatus(force){
+  const p=$('#status-panel'), open = force ?? p.hidden;
+  p.hidden=!open; $('#status-btn').setAttribute('aria-expanded', String(open));
+  if(!open) store.set('unoStatusSeen','1');
+}
+$('#status-btn').onclick=()=>toggleStatus(); $('#status-close').onclick=()=>toggleStatus(false);
+// Unhealthy llega con 503 pero trae el mismo JSON
+async function loadHealth(){
+  try{ const r = await fetch(API.health); renderHealth(await r.json()); }
+  catch(e){ renderHealth({estado:'Unhealthy',revisiones:{}}); }
+}
+
+/* ---------- Historial: filtros + paginación (en el servidor) ---------- */
+const F = {dia:'', tipo:'all', q:'', page:1, size:10};
+let total = 0;
+const ST = {TERMINADO:['ok','TERMINADO'], INSERTANDO:['run','INSERTANDO'], ERROR:['err','ERROR'], CANCELADO:['err','CANCELADO'],
+  POR_INSERTAR:['run','POR INSERTAR'], REVISADO:['run','REVISADO'], LEYENDO:['run','LEYENDO'], SUBIDO:['run','SUBIDO']};
+async function loadHistory(){
+  let items;
+  try{
+    const p = new URLSearchParams({dia:F.dia,tipo:F.tipo,q:F.q,page:F.page,size:F.size});
+    const r = await api(API.history+'?'+p); items = r.items.map(toJob); total = r.total;
+  }catch(e){
+    $('#hist-body').innerHTML = `<tr class="empty"><td colspan="7" style="color:var(--err)">${esc(e.message)}</td></tr>`;
+    return;
+  }
+  if (F.page > 1 && !items.length && total){ F.page = Math.ceil(total/F.size); return loadHistory(); }
+  $('#hist-body').innerHTML = items.length ? items.map(r=>{
+    const [c,t] = ST[r.estado]||['run',r.estado];
+    const retry = r.estado==='ERROR' ? ' <a href="#archivo" data-retry style="font-weight:500">Volver a subir</a>' : '';
+    const ins = r.estado==='REVISADO' && (r.faltaban>0 || r.tipo==='sms') ? ' <a href="#job-card" style="font-weight:500">Insertar faltantes</a>' : '';
+    return `<tr data-id="${esc(r.id)}" title="Ver detalle"><td class="muted" style="white-space:nowrap">${esc(fmtDate(r.subido))}</td>
+      <td><span style="font-weight:500">${esc(TIPO[r.tipo]||r.tipo)}</span><small title="${esc(r.archivo)}">${esc(shortName(r.archivo))}</small></td>
+      <td><span class="st ${c}"><i></i>${esc(t)}</span></td>
+      <td class="num">${fmt(r.leidas)}</td><td class="num">${r.faltaban==null?'—':fmt(r.faltaban)}</td><td class="num" style="font-weight:500">${r.insertadas==null?'—':fmt(r.insertadas)}</td>
+      <td class="muted">${esc(r.mensaje)}${retry}${ins}</td></tr>`;
+  }).join('') : `<tr class="empty"><td colspan="7">No hay cargas que coincidan con los filtros. <button type="button" class="link-btn" onclick="clearFilters()">Limpiar filtros</button></td></tr>`;
+  const pages = Math.max(1, Math.ceil(total/F.size));
+  const from = total ? (F.page-1)*F.size+1 : 0, to = Math.min(F.page*F.size, total);
+  $('#pager-info').textContent = `Mostrando ${from}–${to} de ${fmt(total)}`;
+  let html = `<button type="button" aria-label="Página anterior" ${F.page<=1?'disabled':''} data-p="${F.page-1}">‹</button>`;
+  for (let i=1;i<=pages;i++){
+    if (pages>7 && i>1 && i<pages && Math.abs(i-F.page)>1){ if(i===2||i===pages-1) html+='<span style="padding:0 4px;align-self:center">…</span>'; continue; }
+    html += `<button type="button" data-p="${i}" ${i===F.page?'aria-current="page"':`aria-label="Ir a la página ${i}"`}>${i}</button>`;
+  }
+  html += `<button type="button" aria-label="Página siguiente" ${F.page>=pages?'disabled':''} data-p="${F.page+1}">›</button>`;
+  $('#pages').innerHTML = html;
+}
+$('#hist-body').onclick = e => {
+  const tr = e.target.closest('tr[data-id]'); if(!tr) return;
+  if (e.target.closest('a[data-retry]')) return;
+  track(tr.dataset.id, false);
+  $('#job-card').scrollIntoView({behavior:'smooth', block:'start'});
+};
+$('#pages').onclick = e => { const b=e.target.closest('button[data-p]'); if(b&&!b.disabled){F.page=+b.dataset.p; loadHistory();} };
+$('#per-page').onchange = e => { F.size=+e.target.value; F.page=1; loadHistory(); };
+const hoyLocal = () => new Date().toLocaleDateString('en-CA');
+$('#f-dia').max = hoyLocal();
+$('#f-dia').onfocus = () => { $('#f-dia').max = hoyLocal(); };
+$('#f-dia').onchange = e => {
+  if (e.target.value > hoyLocal()) e.target.value = hoyLocal();
+  F.dia=e.target.value; F.page=1; loadHistory();
+};
+let qT; $('#f-q').oninput = e => { clearTimeout(qT); qT=setTimeout(()=>{F.q=e.target.value.trim(); F.page=1; loadHistory();},300); };
+function setSeg(el,v){ el.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.v===v))); }
+$('#f-tipo').onclick = e => { const b=e.target.closest('button'); if(!b)return; F.tipo=b.dataset.v; setSeg($('#f-tipo'),F.tipo); F.page=1; loadHistory(); };
+function clearFilters(){ Object.assign(F,{dia:'',tipo:'all',q:'',page:1}); $('#f-dia').value=''; $('#f-q').value=''; setSeg($('#f-tipo'),'all'); loadHistory(); }
+$('#f-clear').onclick = clearFilters;
+$('#btn-refresh').onclick = async () => {
+  const b = $('#btn-refresh'); if (b.disabled) return;
+  b.disabled = true; $('#refresh-txt').textContent = 'Actualizando...';
+  try { await Promise.all([loadHistory(), loadHealth()]); }
+  finally {
+    b.disabled = false; $('#refresh-txt').textContent = 'Actualizar';
+    $('#refresh-info').textContent = `Actualizado a las ${new Date().toLocaleTimeString('es-MX', { hour12: false })}`;
+  }
+};
+
+/* ---------- Revisar día ---------- */
+const ayerLocal = () => new Date(Date.now() - 864e5).toLocaleDateString('en-CA');
+$('#dia').max = ayerLocal(); $('#dia').value = ayerLocal();
+$('#dia').onchange = () => { $('#huecos').replaceChildren(); };
+$('#btn-revisar').onclick = async () => {
+  const out = $('#huecos'), btn = $('#btn-revisar');
+  if (btn.disabled) return;
+  if (!$('#dia').value) return msg(out, 'Elige un día.', 'err');
+  $('#dia').max = ayerLocal();
+  if ($('#dia').value > ayerLocal()) return msg(out, 'Solo se pueden revisar días que ya terminaron (hasta ayer).', 'err');
+  btn.disabled = true; btn.textContent = 'Revisando...';
+  msg(out, 'Revisando el día, espera un momento...', 'muted');
+  try { await revisarDia(out); }
+  catch (e) { msg(out, e.message, 'err'); }
+  finally {
+    btn.disabled = false; btn.textContent = 'Revisar día';
+    const t = document.createElement('div');
+    t.className = 'muted'; t.style.fontWeight = '400'; t.style.fontSize = '13px';
+    t.textContent = `Revisado a las ${new Date().toLocaleTimeString('es-MX', { hour12: false })}`;
+    out.append(t);
+  }
+};
+async function revisarDia(out){
+  const fecha = $('#dia').value;
+  const r = await api(API.checkDay + '?fecha=' + fecha);
+  const recs = await api(API.list).catch(() => []);
+  await loadHealth();
+  const datosBandeja = lastHealth?.revisiones?.inbox?.datos || {};
+  const pendientes = datosBandeja.pendientes ?? 0;
+  const masViejo = datosBandeja.pendiente_mas_viejo_utc ? new Date(datosBandeja.pendiente_mas_viejo_utc) : null;
+  const pendDelDia = pendientes > 0 && (!masViejo || masViejo <= new Date(fecha + 'T23:59:59'));
+  const dia = fecha.split('-').reverse().join('/');
+  out.replaceChildren(); out.className = 'msg';
+
+  if (pendDelDia){ msg(out, `Aún hay ${fmt(pendientes)} avisos en la bandeja. Revisa cuando esté en 0.`, 'warn'); return; }
+
+  const [hi, mi] = (r.horarioInicio || '07:00').split(':').map(Number), [hf, mf] = (r.horarioFin || '22:00').split(':').map(Number);
+  const UMBRAL = 50;
+  const cortes = r.ventanasSinServicio.map(v => {
+    const d = new Date(v.desde), h = new Date(v.hasta);
+    const ini = new Date(d); ini.setHours(hi, mi, 0, 0);
+    const fin = new Date(d); fin.setHours(hf, mf, 0, 0);
+    const a = d < ini ? ini : d, b = h > fin ? fin : h;
+    return { a, b, min: Math.round((b - a) / 60000), bl: (v.avisos_Blaster_Cerca || 0) >= UMBRAL, sms: (v.avisos_Sms_Cerca || 0) >= UMBRAL };
+  }).filter(c => c.min >= 1 && (c.bl || c.sms));
+
+  const hora = x => x.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', hour12: false });
+  const diaLocal = x => { const d = new Date(x); d.setHours(0, 0, 0, 0); return d.getTime(); };
+  const cubreDia = (j, c) => j.desde && j.hasta && diaLocal(j.desde) <= diaLocal(c.a) && diaLocal(c.a) <= diaLocal(j.hasta);
+  const delCanal = (c, canal) => recs.filter(j => (j.canal || 'BLASTER') === canal && cubreDia(j, c));
+  const estado = (c, canal) => {
+    const js = delCanal(c, canal);
+    if (js.some(j => j.estado === 'TERMINADO' || (j.estado === 'REVISADO' && j.faltantes === 0))) return 'OK';
+    if (js.some(j => j.estado === 'REVISADO' && j.faltantes > 0)) return 'INSERTAR';
+    if (js.some(j => ['POR_INSERTAR', 'INSERTANDO'].includes(j.estado))) return 'CURSO';
+    return 'FALTA';
   };
-  function overlay(titulo, detalle) {
-    if (!titulo) { $('overlay').classList.add('hidden'); return; }
-    $('ovTitulo').textContent = titulo; $('ovDetalle').textContent = detalle || '';
-    $('overlay').classList.remove('hidden');
+  const canales = c => [c.bl && ['BLASTER', 'Llamadas'], c.sms && ['SMS', 'SMS']].filter(Boolean).map(([canal, nombre]) => ({ nombre, est: estado(c, canal) }));
+  const todos = cortes.flatMap(canales);
+
+  const p = document.createElement('div');
+  if (!todos.length || todos.every(x => x.est === 'OK')){
+    p.className = 'msg ok';
+    p.textContent = todos.length ? `${dia}: todo OK (lo que faltaba ya se recuperó).` : `${dia}: todo OK, no falta nada.`;
+    out.append(p); return;
   }
-  function aviso(icono, titulo, texto, botones) {
-    return new Promise(resolve => {
-      $('mdIcono').textContent = icono; $('mdTitulo').textContent = titulo; $('mdTexto').textContent = texto;
-      const cont = $('mdBotones'); cont.replaceChildren();
-      botones.forEach(b => {
-        const btn = document.createElement('button');
-        btn.textContent = b.texto; if (b.clase) btn.className = b.clase;
-        btn.onclick = () => { $('modal').classList.add('hidden'); resolve(b.valor); };
-        cont.appendChild(btn);
-      });
-      $('modal').classList.remove('hidden');
-      cont.firstChild?.focus();
-    });
-  }
+  const faltan = [...new Set(todos.filter(x => x.est === 'FALTA').map(x => x.nombre))];
+  if (faltan.length){ p.className = 'msg err'; p.textContent = `${dia}: faltan datos. Sube el reporte del día de: ${faltan.join(' y ')}.`; }
+  else if (todos.some(x => x.est === 'INSERTAR')){ p.className = 'msg warn'; p.textContent = `${dia}: falta dar "Insertar faltantes" en el historial.`; }
+  else { p.className = 'msg warn'; p.textContent = `${dia}: recuperando, espera a que termine.`; }
 
-  function reiniciar() {
-    clearTimeout(timer); jobId = null; finAvisado = false;
-    $('archivo').value = ''; $('barra').style.width = '0';
-    msg($('msgSubida'), '', 'muted'); msg($('msgResultado'), '', '');
-    $('cardResultado').classList.add('hidden');
-    $('btnSubir').disabled = false;
-    $('archivo').scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }
+  const texto = { OK: 'recuperado', INSERTAR: 'falta insertar', CURSO: 'recuperando', FALTA: 'falta' };
+  const ul = document.createElement('ul');
+  cortes.forEach(c => {
+    const cs = canales(c).filter(x => x.est !== 'OK');
+    if (!cs.length) return;
+    const li = document.createElement('li');
+    li.textContent = `${hora(c.a)} a ${hora(c.b)} (${c.min} min): ` + cs.map(x => `${x.nombre}: ${texto[x.est]}`).join(', ');
+    if (cs.some(x => x.est === 'FALTA')) li.className = 'mal';
+    ul.appendChild(li);
+  });
+  out.append(p, ul);
+}
 
-  function msg(el, text, cls = '') { el.textContent = text; el.className = 'msg ' + cls; }
+/* ---------- Subida ---------- */
+let tipoUpload='blaster', xhr=null;
+$('#tipo-upload').onclick = e => { const b=e.target.closest('button'); if(!b)return; tipoUpload=b.dataset.v; setSeg($('#tipo-upload'),tipoUpload); $('#tipo-label').textContent = tipoUpload==='sms'?'SMS':'llamadas'; };
+const drop=$('#drop'), file=$('#archivo');
+['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('over');}));
+['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('over');}));
+drop.addEventListener('drop',e=>{ if(e.dataTransfer.files[0]){ file.files=e.dataTransfer.files; showFile(); } });
+file.onchange=showFile;
+function showFile(){ const f=file.files[0]; if(f) $('#drop-title').textContent = f.name+' · '+(f.size/1048576).toFixed(1)+' MB'; msg($('#upload-msg'),''); }
+function resetDrop(){ file.value=''; $('#drop-title').innerHTML='Arrastra aquí el reporte o <u>selecciona un archivo</u>'; }
 
-  // Mientras revisa el boton se desactiva y muestra que esta trabajando
-  $('btnHuecos').onclick = async () => {
-    const out = $('huecos'), btn = $('btnHuecos');
-    if (btn.disabled) return;
-    if (!$('fechaHuecos').value) return msg(out, 'Elige un día.', 'err');
-    $('fechaHuecos').max = ayerLocal();
-    if ($('fechaHuecos').value > ayerLocal()) return msg(out, 'Solo se pueden revisar días que ya terminaron (hasta ayer).', 'err');
-    btn.disabled = true; btn.textContent = 'Revisando...';
-    msg(out, 'Revisando el día, espera un momento...', 'muted');
-    try {
-      await revisarDia(out);
-    } catch (e) {
-      msg(out, e.message, 'err');
-    } finally {
-      btn.disabled = false; btn.textContent = 'Revisar día';
-      const t = document.createElement('div');
-      t.className = 'muted';
-      t.textContent = `Revisado a las ${new Date().toLocaleTimeString('es-MX', { hour12: false })}`;
-      out.append(t);
-    }
-  };
-  $('fechaHuecos').onchange = () => { $('huecos').replaceChildren(); };
-
-  async function revisarDia(out) {
-    const fecha = $('fechaHuecos').value;
-    const r = await api('/api/reportes/huecos?fecha=' + fecha);
-    const recs = await api('/api/recuperacion/').catch(() => []);
-    const salud = await fetch('/health/detalle').then(x => x.json()).catch(() => null);
-    const datosBandeja = salud?.revisiones?.inbox?.datos || {};
-    const pendientes = datosBandeja.pendientes ?? 0;
-    const masViejo = datosBandeja.pendiente_mas_viejo_utc ? new Date(datosBandeja.pendiente_mas_viejo_utc) : null;
-    const finDelDia = new Date(fecha + 'T23:59:59');
-    const pendDelDia = pendientes > 0 && (!masViejo || masViejo <= finDelDia);
-    const dia = fecha.split('-').reverse().join('/');
-    out.replaceChildren();
-    out.className = 'msg';
-
-    // Si aun hay avisos del dia en la bandeja el resultado no es final
-    if (pendDelDia) {
-      const d = document.createElement('div');
-      d.style.color = 'var(--warn)'; d.style.fontWeight = '600';
-      d.textContent = `Aún hay ${n(pendientes)} avisos en la bandeja. Revisa cuando esté en 0.`;
-      out.append(d);
-      return;
-    }
-
-    const [hi, mi] = (r.horarioInicio || '07:00').split(':').map(Number), [hf, mf] = (r.horarioFin || '22:00').split(':').map(Number);
-    const UMBRAL = 50;
-    const cortes = r.ventanasSinServicio.map(v => {
-      const d = new Date(v.desde), h = new Date(v.hasta);
-      const ini = new Date(d); ini.setHours(hi, mi, 0, 0);
-      const fin = new Date(d); fin.setHours(hf, mf, 0, 0);
-      const a = d < ini ? ini : d, b = h > fin ? fin : h;
-      return { a, b, min: Math.round((b - a) / 60000), bl: (v.avisos_Blaster_Cerca || 0) >= UMBRAL, sms: (v.avisos_Sms_Cerca || 0) >= UMBRAL };
-    }).filter(c => c.min >= 1 && (c.bl || c.sms));
-
-    const hora = x => x.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', hour12: false });
-    const diaLocal = x => { const d = new Date(x); d.setHours(0, 0, 0, 0); return d.getTime(); };
-    const cubreDia = (j, c) => j.desde && j.hasta && diaLocal(j.desde) <= diaLocal(c.a) && diaLocal(c.a) <= diaLocal(j.hasta);
-    const delCanal = (c, canal) => recs.filter(j => (j.canal || 'BLASTER') === canal && cubreDia(j, c));
-    // OK = recuperado, INSERTAR = subido pero falta "Insertar faltantes", CURSO = recuperando, FALTA = no se ha subido
-    const estado = (c, canal) => {
-      const js = delCanal(c, canal);
-      if (js.some(j => j.estado === 'TERMINADO' || (j.estado === 'REVISADO' && j.faltantes === 0))) return 'OK';
-      if (js.some(j => j.estado === 'REVISADO' && j.faltantes > 0)) return 'INSERTAR';
-      if (js.some(j => ['POR_INSERTAR', 'INSERTANDO'].includes(j.estado))) return 'CURSO';
-      return 'FALTA';
-    };
-    const canales = c => [c.bl && ['BLASTER', 'Llamadas'], c.sms && ['SMS', 'SMS']].filter(Boolean)
-      .map(([canal, nombre]) => ({ nombre, est: estado(c, canal) }));
-    const todos = cortes.flatMap(canales);
-
-    const p = document.createElement('div');
-    p.style.fontWeight = '600';
-    if (!todos.length || todos.every(x => x.est === 'OK')) {
-      p.className = 'msg ok';
-      p.textContent = todos.length ? `${dia}: todo OK (lo que faltaba ya se recuperó).` : `${dia}: todo OK, no falta nada.`;
-      out.append(p);
-      return;
-    }
-    const faltan = [...new Set(todos.filter(x => x.est === 'FALTA').map(x => x.nombre))];
-    if (faltan.length) {
-      p.className = 'estado-mal';
-      p.textContent = `${dia}: faltan datos. Sube el reporte del día de: ${faltan.join(' y ')}.`;
-    } else if (todos.some(x => x.est === 'INSERTAR')) {
-      p.style.color = 'var(--warn)';
-      p.textContent = `${dia}: falta dar "Insertar faltantes" en el historial.`;
+$('#btn-subir').onclick = () => {
+  const f = file.files[0], m = $('#upload-msg');
+  if (!f){ file.click(); return; }
+  if (!/\.(csv|zip)$/i.test(f.name)) return msg(m, 'Solo se aceptan .csv o .zip.', 'err');
+  const fd = new FormData(); fd.append('canal', tipoUpload.toUpperCase()); fd.append('archivo', f, f.name);
+  xhr = new XMLHttpRequest();
+  xhr.open('POST', API.upload);
+  if (apiKey()) xhr.setRequestHeader('X-Api-Key', apiKey());
+  xhr.upload.onprogress = e => { if (e.lengthComputable) dlgProgress('Subiendo archivo', e.loaded/1048576, e.total/1048576, ' MB'); };
+  xhr.onload = () => {
+    const x = xhr; xhr = null; $('#btn-subir').disabled = false;
+    if (x.status === 202){
+      msg(m, 'Archivo recibido. Revisando en el servidor (puede tardar unos minutos)...', 'ok');
+      resetDrop();
+      track(JSON.parse(x.responseText).jobId, true);
+      loadHistory();
     } else {
-      p.style.color = 'var(--warn)';
-      p.textContent = `${dia}: recuperando, espera a que termine.`;
+      $('#dlg').hidden = true;
+      let d = 'Error ' + x.status; try { const b = JSON.parse(x.responseText); d = b.detail || b.title || d; } catch {}
+      if (x.status === 401){ askKey(); d = 'Estás fuera de la red interna: escribe la API Key arriba.'; }
+      msg(m, d, 'err');
     }
-
-    const texto = { OK: 'recuperado', INSERTAR: 'falta insertar', CURSO: 'recuperando', FALTA: 'falta' };
-    const ul = document.createElement('ul');
-    cortes.forEach(c => {
-      const cs = canales(c).filter(x => x.est !== 'OK');
-      if (!cs.length) return;
-      const li = document.createElement('li');
-      li.textContent = `${hora(c.a)} a ${hora(c.b)} (${c.min} min): ` + cs.map(x => `${x.nombre}: ${texto[x.est]}`).join(', ');
-      if (cs.some(x => x.est === 'FALTA')) li.className = 'estado-mal';
-      ul.appendChild(li);
-    });
-    out.append(p, ul);
-  }
-
-  $('btnSubir').onclick = () => {
-    const file = $('archivo').files[0], m = $('msgSubida');
-    if (!file) return msg(m, 'Selecciona el archivo .csv o .zip.', 'err');
-    if (!/\.(csv|zip)$/i.test(file.name)) return msg(m, 'Solo se aceptan .csv o .zip.', 'err');
-
-    const fd = new FormData();
-    fd.append('canal', $('canal').value);
-    fd.append('archivo', file, file.name);
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', '/api/recuperacion/');
-    if (key()) xhr.setRequestHeader('X-Api-Key', key());
-    xhr.upload.onprogress = e => {
-      if (!e.lengthComputable) return;
-      const pct = Math.round(e.loaded * 100 / e.total);
-      $('barra').style.width = pct + '%';
-      msg(m, `Subiendo... ${pct}% (${(e.loaded / 1048576).toFixed(0)} de ${(e.total / 1048576).toFixed(0)} MB)`, 'muted');
-      overlay(`Subiendo archivo... ${pct}%`, `${(e.loaded / 1048576).toFixed(0)} de ${(e.total / 1048576).toFixed(0)} MB`);
-    };
-    xhr.onload = () => {
-      if (xhr.status === 202) {
-        jobId = JSON.parse(xhr.responseText).jobId; finAvisado = false;
-        msg(m, 'Archivo recibido. Revisando en el servidor (puede tardar unos minutos)...', 'ok');
-        $('cardResultado').classList.remove('hidden');
-        seguir();
-      } else {
-        overlay(null);
-        let d = 'Error ' + xhr.status; try { const b = JSON.parse(xhr.responseText); d = b.detail || b.title || d; } catch {}
-        if (xhr.status === 401) pedirLlave();
-        msg(m, xhr.status === 401 ? 'Estás fuera de la red interna: escribe la API Key arriba.' : d, 'err');
-      }
-      $('btnSubir').disabled = false;
-    };
-    xhr.onerror = () => { overlay(null); msg(m, 'Se perdió la conexión al subir. Intenta de nuevo (mejor con .zip).', 'err'); $('btnSubir').disabled = false; };
-    $('btnSubir').disabled = true; $('barra').style.width = '0'; overlay('Subiendo archivo... 0%', file.name);
-    xhr.send(fd);
   };
+  xhr.onerror = () => { xhr = null; $('#dlg').hidden = true; $('#btn-subir').disabled = false; msg(m, 'Se perdió la conexión al subir. Intenta de nuevo (mejor con .zip).', 'err'); };
+  xhr.onabort = () => { xhr = null; $('#btn-subir').disabled = false; msg(m, 'Subida cancelada.', 'muted'); };
+  $('#btn-subir').disabled = true;
+  $('#dlg-file').textContent = `${TIPO[tipoUpload]} · ${f.name}`;
+  dlgProgress('Subiendo archivo', 0, f.size/1048576, ' MB');
+  step('running'); $('#dlg').hidden = false;
+  xhr.send(fd);
+};
 
-  function pintar(j) {
-    if (ESTADOS[j.estado]) overlay(ESTADOS[j.estado], j.estado === 'LEYENDO' || j.estado === 'SUBIDO'
-        ? `${n(j.filasLeidas)} registros leídos`
-        : (j.mensaje || '') + (j.insertadas ? ` · ${n(j.insertadas)} insertadas` : ''));
-    else overlay(null);
-    $('estadoTag').textContent = j.estado; $('estadoTag').className = 'tag ' + j.estado;
-    $('archivoInfo').textContent = `${j.archivo} · ${(j.tamanoBytes / 1048576).toFixed(0)} MB · subido ${f(j.fechaSubida)}`;
-    $('kLeidas').textContent = n(j.filasLeidas);
-    $('kExistian').textContent = n(j.yaExistian);
-    $('kFaltan').textContent = n(j.faltantes);
-    $('kSinMarcar').textContent = n(j.filasSinMarcar);
-    canalActual = j.canal || 'BLASTER';
-    $('lSinMarcar').textContent = canalActual === 'SMS' ? 'Sin estado' : 'Voices no las marcó';
-    $('kRango').textContent = j.desde ? `${f(j.desde)} → ${f(j.hasta)}` : '–';
-    const puedeInsertar = (j.estado === 'REVISADO' || (j.estado === 'ERROR' && j.faltantes !== null)) && (j.faltantes > 0 || canalActual === 'SMS');
-    $('btnInsertar').disabled = !puedeInsertar;
-    $('btnInsertar').textContent = j.faltantes ? `Insertar ${n(j.faltantes)} faltantes`
-      : (canalActual === 'SMS' ? 'Completar número y texto' : 'Insertar faltantes');
-    $('btnCancelar').disabled = !['REVISADO', 'ERROR', 'LEYENDO', 'SUBIDO'].includes(j.estado);
-    const cls = j.estado === 'ERROR' ? 'err' : j.estado === 'TERMINADO' ? 'ok' : 'muted';
-    let t = j.mensaje || '';
-    if (j.estado === 'REVISADO' && j.faltantes === 0) t = `No falta nada: ${palabra()} del archivo ya estaban guardados.`;
-    if (j.estado === 'TERMINADO') t = `${n(j.insertadas)} llamadas insertadas · a_num completado en ${n(j.aNumActualizados)}.`;
-    msg($('msgResultado'), t, cls);
+/* ---------- Trabajo activo + diálogo ---------- */
+let job=null, pollT=null, cancelPedido=false;
+function dlgProgress(title, done, tot, unit=''){
+  const pct = tot ? Math.min(100, Math.floor(done*100/tot)) : 0;
+  $('#dlg-title').textContent = title;
+  $('#dlg-done').textContent = fmt(Math.round(done)) + unit; $('#dlg-total').textContent = tot ? fmt(Math.round(tot)) + unit : '—';
+  $('#dlg-pct').textContent = pct+'%'; $('#dlg-bar').firstElementChild.style.width = pct+'%';
+}
+function puedeInsertar(j){ return (j.estado==='REVISADO' || (j.estado==='ERROR' && j.faltaban!=null)) && (j.faltaban>0 || j.tipo==='sms'); }
+const palabra = j => j.tipo==='sms' ? 'mensajes' : 'llamadas';
+function renderJob(j){
+  job=j;
+  const leyendo = j.estado==='SUBIDO' || j.estado==='LEYENDO';
+  const pct = j.faltaban ? Math.min(100, Math.floor((j.insertadas||0)*100/j.faltaban)) : (j.estado==='TERMINADO' ? 100 : 0);
+  $('#job-card').hidden=false;
+  const tag = $('#job-tag');
+  tag.className = 'tag ' + (j.estado==='TERMINADO' ? 'healthy' : ['ERROR','CANCELADO'].includes(j.estado) ? 'unhealthy' : 'degraded');
+  tag.textContent = (ST[j.estado]||[0,j.estado])[1];
+  $('#job-meta').textContent = `${TIPO[j.tipo]||j.tipo} · ${j.archivo} · Subido ${fmtDate(j.subido)}`;
+  $('#job-done').textContent=fmt(j.insertadas); $('#job-total').textContent=j.faltaban==null?'—':fmt(j.faltaban); $('#job-pct').textContent=pct+'%';
+  $('#job-bar').setAttribute('aria-valuenow',pct); $('#job-bar').firstElementChild.style.width=pct+'%';
+  $('#k-leidas').textContent=fmt(j.leidas); $('#k-faltaban').textContent=j.faltaban==null?'—':fmt(j.faltaban); $('#k-insertadas').textContent=j.insertadas==null?'—':fmt(j.insertadas);
+  $('#k-fechas').innerHTML = j.fecha_min ? `${esc(fmtDate(j.fecha_min).replace(' · ',', '))} →<br>${esc(fmtDate(j.fecha_max).replace(' · ',', '))}` : '—';
+
+  let t = j.mensaje || '', cls = 'muted';
+  if (j.estado==='REVISADO' && j.faltaban===0 && j.tipo!=='sms') { t = `No falta nada: las ${palabra(j)} del archivo ya estaban guardadas.`; cls = 'ok'; }
+  else if (j.estado==='REVISADO') t = `Ya estaban guardadas: ${fmt(j.yaExistian)} · ${j.tipo==='sms'?'Sin estado':'Voices no las marcó'}: ${fmt(j.sinMarcar)} (no se agregan).`;
+  else if (j.estado==='TERMINADO') { t = `${fmt(j.insertadas)} ${palabra(j)} insertadas · ${j.tipo==='sms'?'número/texto':'a_num'} completado en ${fmt(j.aNum)}.`; cls = 'ok'; }
+  else if (j.estado==='ERROR') cls = 'err';
+  msg($('#job-msg'), t, cls);
+
+  const bi = $('#btn-insertar');
+  bi.hidden = !puedeInsertar(j);
+  bi.textContent = j.faltaban ? `Insertar ${fmt(j.faltaban)} faltantes` : (j.tipo==='sms' ? 'Completar número y texto' : 'Insertar faltantes');
+  $('#btn-cancel-job').hidden = !(ACTIVE.includes(j.estado) || j.estado==='REVISADO') || cancelPedido;
+
+  $('#dlg-file').textContent = `${TIPO[j.tipo]||j.tipo} · ${j.archivo}`;
+  if (leyendo) dlgProgress('Leyendo el archivo', j.leidas||0, 0);
+  else if (j.estado==='POR_INSERTAR' || j.estado==='INSERTANDO') dlgProgress('Insertando registros faltantes', j.insertadas||0, j.faltaban||0);
+}
+function step(s){ document.querySelectorAll('#dlg [data-step]').forEach(d=>d.hidden=d.dataset.step!==s); }
+const currentStep = () => [...document.querySelectorAll('#dlg [data-step]')].find(d=>!d.hidden)?.dataset.step;
+
+async function track(id, showDialog){
+  clearTimeout(pollT); cancelPedido = false;
+  if (showDialog){ step('running'); $('#dlg').hidden = false; }
+  await poll(id);
+}
+async function poll(id){
+  clearTimeout(pollT);
+  let j;
+  try { j = toJob(await api(API.job(id))); }
+  catch(e){ msg($('#job-msg'), e.message, 'err'); pollT = setTimeout(()=>poll(id), POLL_MS*2); return; }
+  renderJob(j);
+  if (ACTIVE.includes(j.estado)) { pollT = setTimeout(()=>poll(id), POLL_MS); return; }
+  if (currentStep()==='running') $('#dlg').hidden = true;
+  if (j.estado==='CANCELADO' && cancelPedido)
+    $('#dlg-x-msg').textContent = `Se insertaron ${fmt(j.insertadas)} de ${fmt(j.faltaban)} registros antes de cancelar.`;
+  cancelPedido = false; renderJob(j);
+  loadHistory();
+}
+
+$('#btn-cancel-job').onclick = () => { $('#dlg').hidden=false; askCancel(); };
+function askCancel(){
+  $('#dlg-c-done').textContent = xhr ? 'nada (el archivo se está subiendo)' : `${fmt(job?.insertadas)} de ${job?.faltaban==null?'—':fmt(job.faltaban)}`;
+  step('confirm');
+}
+$('#btn-insertar').onclick = () => {
+  if (!job) return;
+  $('#dlg-i-title').textContent = job.faltaban ? `¿Agregar ${fmt(job.faltaban)} ${palabra(job)}?` : '¿Completar número y texto?';
+  $('#dlg-i-text').textContent = job.tipo==='sms' ? 'Se guardan solo los que faltan y se completa número/texto de los que ya estaban.' : 'Se guardan solo las que faltan. Puede tardar unos minutos.';
+  step('insert'); $('#dlg').hidden = false;
+};
+$('#dlg').onclick = async e => {
+  const a = e.target.closest('[data-act]')?.dataset.act; if(!a) return;
+  if (a==='hide') $('#dlg').hidden=true;
+  if (a==='ask-cancel') askCancel();
+  if (a==='back') step('running');
+  if (a==='confirm-insert'){
+    try { await api(API.insert(job.id), {method:'POST'}); step('running'); await poll(job.id); }
+    catch(err){ $('#dlg').hidden = true; msg($('#job-msg'), err.message, 'err'); }
   }
-  async function seguir() {
-    clearTimeout(timer);
-    if (!jobId) return;
+  if (a==='confirm-cancel'){
+    if (xhr){ xhr.abort(); $('#dlg').hidden = true; return; }
     try {
-      const j = await api('/api/recuperacion/' + jobId);
-      pintar(j);
-      if (['SUBIDO', 'LEYENDO', 'POR_INSERTAR', 'INSERTANDO'].includes(j.estado)) timer = setTimeout(seguir, 2000);
-      else { historial(); avisarFin(j); }
-    } catch (e) { overlay(null); msg($('msgResultado'), e.message, 'err'); timer = setTimeout(seguir, 5000); }
+      cancelPedido = true;
+      await api(API.cancel(job.id), {method:'POST'});
+      $('#dlg-x-msg').textContent = `Se insertaron ${fmt(job.insertadas)} de ${job.faltaban==null?'—':fmt(job.faltaban)} registros antes de cancelar.`;
+      $('#btn-cancel-job').hidden = true;
+      step('cancelled');
+      await poll(job.id);
+    } catch(err){ cancelPedido = false; $('#dlg').hidden = true; msg($('#job-msg'), err.message, 'err'); }
   }
-  async function avisarFin(j) {
-    if (finAvisado) return;
-    let a = null;
-    if (j.estado === 'TERMINADO') a = ['', `${n(j.insertadas)} ${palabra()} agregados`,
-        canalActual === 'SMS' ? `Listo. Además se completó número/texto en ${n(j.aNumActualizados)}.` : 'Listo. Ya quedaron guardadas.'];
-    else if (j.estado === 'REVISADO' && j.faltantes === 0 && canalActual !== 'SMS') a = ['', 'No falta nada', `Todas las ${palabra()} del archivo ya estaban guardadas.`];
-    else if (j.estado === 'CANCELADO') a = ['', 'Cancelado', 'No se guardó nada.'];
-    if (!a) return;
-    finAvisado = true;
-    const v = await aviso(a[0], a[1], a[2], [{ texto: 'Subir otro archivo', valor: 'otro', clase: 'ok' }, { texto: 'Cerrar', valor: 'cerrar', clase: 'sec' }]);
-    if (v === 'otro') reiniciar();
-  }
+};
+document.addEventListener('keydown', e => { if(e.key==='Escape' && !$('#dlg').hidden) $('#dlg').hidden=true; });
 
-  $('btnInsertar').onclick = async () => {
-    const v = await aviso('', `¿Agregar ${$('kFaltan').textContent} ${palabra()}?`,
-      canalActual === 'SMS' ? 'Se guardan solo los que faltan y se completa número/texto de los que ya estaban.' : 'Se guardan solo las que faltan. Puede tardar unos minutos.',
-      [{ texto: 'Sí, agregar', valor: true, clase: 'ok' }, { texto: 'No', valor: false, clase: 'sec' }]);
-    if (!v) return;
-    try { $('btnInsertar').disabled = true; await api(`/api/recuperacion/${jobId}/insertar`, { method: 'POST' }); seguir(); }
-    catch (e) { msg($('msgResultado'), e.message, 'err'); }
-  };
-  $('btnCancelar').onclick = async () => {
-    const v = await aviso('', '¿Cancelar este archivo?', 'No se guardará nada.',
-      [{ texto: 'Sí, cancelar', valor: true, clase: 'sec' }, { texto: 'No', valor: false, clase: 'ok' }]);
-    if (!v) return;
-    try { const j = await api(`/api/recuperacion/${jobId}/cancelar`, { method: 'POST' }); pintar(j); historial(); avisarFin(j); }
-    catch (e) { msg($('msgResultado'), e.message, 'err'); }
-  };
-
-  async function historial() {
-    const tb = $('historial');
-    try {
-      const lista = await api('/api/recuperacion/');
-      tb.replaceChildren();
-      if (!lista.length) { const tr = tb.insertRow(); const td = tr.insertCell(); td.colSpan = 7; td.className = 'muted'; td.textContent = 'Todavía no hay recuperaciones.'; return; }
-      lista.forEach(j => {
-        const tr = tb.insertRow();
-        [f(j.fechaSubida), (j.canal === 'SMS' ? 'SMS · ' : 'Llamadas · ') + j.archivo, null, n(j.filasLeidas), n(j.faltantes), n(j.insertadas), j.mensaje || ''].forEach((v, i) => {
-          const td = tr.insertCell();
-          if (i === 2) { const s = document.createElement('span'); s.className = 'tag ' + j.estado; s.textContent = j.estado; td.appendChild(s); }
-          else td.textContent = v;
-        });
-        tr.style.cursor = 'pointer';
-        tr.title = 'Ver detalle';
-        tr.onclick = () => { jobId = j.jobId; finAvisado = true; $('cardResultado').classList.remove('hidden'); seguir(); };
-      });
-    } catch (e) { tb.replaceChildren(); const td = tb.insertRow().insertCell(); td.colSpan = 7; td.className = 'msg err'; td.textContent = e.message; }
-  }
-  $('btnHistorial').onclick = historial;
-  historial();
-})();
+/* ---------- Inicio ---------- */
+async function resumeActive(){
+  try {
+    const list = (await api(API.list)).map(toJob);
+    const a = list.find(j => ACTIVE.includes(j.estado)) || list.find(j => j.estado==='REVISADO');
+    if (a) track(a.id, false);
+  } catch {}
+}
+loadHealth(); loadHistory(); resumeActive();
+setInterval(loadHealth, 60000);
 </script>
 </body>
 </html>
