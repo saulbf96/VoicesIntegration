@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Diagnostics;
 using VoicesIntegration.Application.Common.Exceptions;
 using VoicesIntegration.Domain.Common;
+using VoicesIntegration.Infrastructure.Persistence;
 
 namespace VoicesIntegration.Api.Errors;
 
@@ -18,6 +19,8 @@ internal sealed class GlobalExceptionHandler(
             JsonException => (StatusCodes.Status400BadRequest, "JSON inválido", "El cuerpo no es un JSON válido."),
             BadHttpRequestException ex => (ex.StatusCode, "Solicitud inválida", "La solicitud no es válida."),
             ExternalServiceException ex => (StatusCodes.Status502BadGateway, "Error en servicio externo", ex.Message),
+            _ when SqlErroresPasajeros.Es(exception) => (StatusCodes.Status503ServiceUnavailable, "Base de datos lenta",
+                "El servidor de base de datos está lento o no responde. Reintentando..."),
             _ => (StatusCodes.Status500InternalServerError, "Error interno", "Ocurrió un error inesperado.")
         };
 

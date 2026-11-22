@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Options;
@@ -16,12 +16,20 @@ public static class RecoveryEndpoints
 {
     private static readonly string[] Allowed = [".csv", ".zip"];
 
+    // En mantenimiento no se sube ni se inserta (antes de leer el archivo). Detener/cancelar si se permite.
+    private static async ValueTask<object?> SinMantenimiento(EndpointFilterInvocationContext ctx, EndpointFilterDelegate next) =>
+        RecoveryMaintenance.Motivo(ctx.HttpContext.RequestServices.GetRequiredService<IWebHostEnvironment>()) is { } motivo
+            ? RecoveryMaintenance.Rechazo(motivo)
+            : await next(ctx);
+
     public static IEndpointRouteBuilder MapRecoveryEndpoints(this IEndpointRouteBuilder app)
     {
         var g = app.MapGroup("/api/recuperacion").WithTags("Recuperación").RequireInternalNetworkOrApiKey();
 
-        g.MapPost("/", UploadAsync).DisableAntiforgery();
+        g.MapPost("/", UploadAsync).DisableAntiforgery().AddEndpointFilter(SinMantenimiento);
         g.MapGet("/", async (IRecoveryRepository repo, CancellationToken ct) => Results.Ok(await repo.ListAsync(ct)));
+        g.MapGet("/mantenimiento", (IWebHostEnvironment env) =>
+            RecoveryMaintenance.Motivo(env) is { } m ? Results.Ok(new { activo = true, mensaje = m }) : Results.Ok(new { activo = false, mensaje = (string?)null }));
         g.MapGet("/{id:guid}", async (Guid id, IRecoveryRepository repo, CancellationToken ct) =>
             await repo.GetAsync(id, ct) is { } job ? Results.Ok(job) : Results.NotFound());
 
@@ -30,7 +38,7 @@ public static class RecoveryEndpoints
         {
             var job = await repo.GetAsync(id, ct);
             if (job is null) return Results.NotFound();
-            if (job.Estado is not (RecoveryStates.Revisado or RecoveryStates.Error) || job.Faltantes is null)
+            if (job.Estado is not (RecoveryStates.Revisado or RecoveryStates.Error or RecoveryStates.Detenido) || job.Faltantes is null)
                 return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "No se puede insertar",
                     detail: $"La recuperación está en estado {job.Estado}.");
             if (RecoveryDayRule.WhyNot(job, inbox.GetStatus(), time.GetUtcNow()) is { } motivo)
@@ -38,11 +46,12 @@ public static class RecoveryEndpoints
             await repo.UpdateAsync(id, RecoveryStates.PorInsertar, null, "En cola para insertar...", ct);
             await queue.EnqueueAsync(new RecoveryWork(id, true, null));
             return Results.Accepted($"/api/recuperacion/{id}", new { jobId = id });
-        });
+        }).AddEndpointFilter(SinMantenimiento);
 
         g.MapGet("/historial", HistoryAsync);
 
-        // Si esta corriendo se detiene y el worker lo deja en CANCELADO; lo ya insertado se queda
+        // Insertando o en cola: se DETIENE (sigue con "Insertar faltantes"). Revisado/detenido/error: se descarta.
+        // Lo ya insertado siempre se queda.
         g.MapPost("/{id:guid}/cancelar", async (Guid id, IRecoveryRepository repo, RecoveryCancellations running,
             IOptions<RecoveryOptions> o, CancellationToken ct) =>
         {
@@ -52,6 +61,11 @@ public static class RecoveryEndpoints
                 return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "No se puede cancelar", detail: $"Estado {job.Estado}.");
             if (running.Cancel(id))
                 return Results.Accepted($"/api/recuperacion/{id}", job);
+            if (job.Estado is RecoveryStates.PorInsertar or RecoveryStates.Insertando)
+            {
+                await repo.UpdateAsync(id, RecoveryStates.Detenido, null, Application.Features.Recovery.RecoveryService.MensajeDetenido(job), ct);
+                return Results.Ok(await repo.GetAsync(id, ct));
+            }
             await repo.CancelAsync(id, ct);
             foreach (var f in Directory.EnumerateFiles(o.Value.Path, id.ToString("N") + ".*"))
                 Application.Features.Recovery.RecoveryService.TryDelete(f);
@@ -63,7 +77,7 @@ public static class RecoveryEndpoints
 
     private static readonly int[] PageSizes = [5, 10, 20];
 
-    private static async Task<IResult> HistoryAsync(string? dia, string? tipo, string? q, int? page, int? size,
+    private static async Task<IResult> HistoryAsync(string? dia, string? tipo, string? q, string? estado, int? page, int? size,
         IRecoveryRepository repo, CancellationToken ct)
     {
         DateOnly? d = null;
@@ -83,9 +97,23 @@ public static class RecoveryEndpoints
             default: return Results.Problem(statusCode: 400, title: "Tipo inválido", detail: "El tipo debe ser all, blaster o sms.");
         }
 
+        // all | proceso (subido, leyendo, en cola, insertando) | revisado | detenido | terminado | error | cancelado
+        string? filtroEstado;
+        switch (estado?.Trim().ToLowerInvariant())
+        {
+            case null or "" or "all": filtroEstado = null; break;
+            case "proceso": filtroEstado = "EN_PROCESO"; break;
+            case "revisado": filtroEstado = RecoveryStates.Revisado; break;
+            case "detenido": filtroEstado = RecoveryStates.Detenido; break;
+            case "terminado": filtroEstado = RecoveryStates.Terminado; break;
+            case "error": filtroEstado = RecoveryStates.Error; break;
+            case "cancelado": filtroEstado = RecoveryStates.Cancelado; break;
+            default: return Results.Problem(statusCode: 400, title: "Estado inválido", detail: "Usa all, proceso, revisado, detenido, terminado, error o cancelado.");
+        }
+
         var p = Math.Max(1, page ?? 1);
         var s = size is { } v && PageSizes.Contains(v) ? v : 10;
-        var r = await repo.HistoryAsync(d, canal, string.IsNullOrWhiteSpace(q) ? null : q.Trim(), p, s, ct);
+        var r = await repo.HistoryAsync(d, canal, string.IsNullOrWhiteSpace(q) ? null : q.Trim(), filtroEstado, p, s, ct);
         return Results.Ok(new { total = r.Total, items = r.Items });
     }
 
@@ -159,6 +187,7 @@ public static class RecoveryEndpoints
         {
             if (savedPath is not null && File.Exists(savedPath)) File.Delete(savedPath);
             throw;
+            
         }
     }
 }

@@ -1,4 +1,4 @@
-using System.Data;
+﻿using System.Data;
 using Dapper;
 using System.Diagnostics;
 using Microsoft.Data.SqlClient;
@@ -55,11 +55,11 @@ internal sealed class RecoveryRepository(ISqlConnectionFactory connectionFactory
             commandType: CommandType.StoredProcedure, commandTimeout: 30, cancellationToken: ct))).ToList();
     }
 
-    public async Task<RecoveryPage> HistoryAsync(DateOnly? dia, string? canal, string? q, int page, int size, CancellationToken ct)
+    public async Task<RecoveryPage> HistoryAsync(DateOnly? dia, string? canal, string? q, string? estado, int page, int size, CancellationToken ct)
     {
         await using var c = connectionFactory.Create();
         using var r = await c.QueryMultipleAsync(new CommandDefinition("dbo.USP_RECUPERACION_HISTORIAL_VOICES",
-            new { Dia = dia?.ToDateTime(TimeOnly.MinValue), Canal = canal, Q = Cut(q, 260), Page = page, Size = size },
+            new { Dia = dia?.ToDateTime(TimeOnly.MinValue), Canal = canal, Q = Cut(q, 260), Estado = estado, Page = page, Size = size },
             commandType: CommandType.StoredProcedure, commandTimeout: 30, cancellationToken: ct));
         var total = await r.ReadSingleAsync<int>();
         var items = (await r.ReadAsync<RecoveryJob>()).ToList();
@@ -204,6 +204,14 @@ internal sealed class RecoveryRepository(ISqlConnectionFactory connectionFactory
         await ExecAsync("dbo.USP_RECUPERACION_INSERTAR_VOICES", new { JobId = jobId, Cancelar = true }, 0, ct);
         await ExecAsync("dbo.USP_RECUPERACION_SMS_INSERTAR_VOICES", new { JobId = jobId, Cancelar = true }, 0, ct);
     }
+
+    public Task SaveOmittedAsync(Guid jobId, int omitidas, DateTime corte, CancellationToken ct) =>
+        ExecAsync(Estado, new { JobId = jobId, Omitidas = omitidas, Corte = corte }, 30, ct);
+
+    public Task RecountInsertedAsync(Guid jobId, CancellationToken ct) =>
+        ExecAsync(Estado, new { JobId = jobId, RecontarInsertadas = true }, 0, ct);
+
+    public bool IsTransient(Exception ex) => SqlErroresPasajeros.Es(ex);
 
     private async Task ExecAsync(string sp, object args, int timeoutSeconds, CancellationToken ct)
     {

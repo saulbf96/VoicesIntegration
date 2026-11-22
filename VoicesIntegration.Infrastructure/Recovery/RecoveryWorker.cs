@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Threading.Channels;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -132,20 +132,28 @@ internal sealed class RecoveryWorker(
         }
     }
 
-    // Lo ya insertado se queda; solo se limpia lo temporal
+    // Insertando: se DETIENE (archivo y comparación se quedan para seguir). Leyendo: se descarta.
     private async Task MarkCancelledAsync(RecoveryWork work, CancellationToken ct)
     {
         await using var scope = scopeFactory.CreateAsyncScope();
         var repo = scope.ServiceProvider.GetRequiredService<IRecoveryRepository>();
-        await repo.CancelAsync(work.JobId, ct);
-        var job = await repo.GetAsync(work.JobId, ct);
-        var msg = work.Insert
-            ? $"Cancelado: se insertaron {job?.Insertadas ?? 0:N0} de {job?.Faltantes ?? 0:N0}."
-            : "Cancelado al revisar. No se guardó nada.";
-        await repo.UpdateAsync(work.JobId, null, null, msg, ct);
-        RecoveryService.TryDelete(FindFile(work.JobId));
-        logger.LogInformation("Recuperación {JobId} cancelada desde la pantalla: {Mensaje}", work.JobId, msg);
+        string msg;
+        if (work.Insert)
+        {
+            var job = await repo.GetAsync(work.JobId, ct);
+            msg = RecoveryService.MensajeDetenido(job);
+            await repo.UpdateAsync(work.JobId, RecoveryStates.Detenido, null, msg, ct);
+        }
+        else
+        {
+            await repo.CancelAsync(work.JobId, ct);
+            msg = "Cancelado al revisar. No se guardó nada.";
+            await repo.UpdateAsync(work.JobId, null, null, msg, ct);
+            RecoveryService.TryDelete(FindFile(work.JobId));
+        }
+        logger.LogInformation("Recuperación {JobId} detenida/cancelada desde la pantalla: {Mensaje}", work.JobId, msg);
     }
+
 
     internal string? FindFile(Guid jobId) =>
         Directory.EnumerateFiles(options.Value.Path, jobId.ToString("N") + ".*").FirstOrDefault();
@@ -189,6 +197,16 @@ internal sealed class RecoveryWorker(
                 await repo.CancelAsync(job.JobId, ct);
                 RecoveryService.TryDelete(FindFile(job.JobId));
                 logger.LogInformation("Recuperación {JobId} revisada y nunca insertada: cancelada automáticamente", job.JobId);
+            }
+            // Detenidas que no se retomaron en 2 días (el archivo ya se borra): se limpia lo temporal
+            var vencidas = DateTime.Now.AddDays(-2);
+            foreach (var job in (await repo.ListAsync(ct)).Where(j => j.Estado == RecoveryStates.Detenido && j.FechaActualizacion < vencidas))
+            {
+                await repo.CancelAsync(job.JobId, ct);
+                await repo.UpdateAsync(job.JobId, null, null,
+                    $"Detenida y no se retomó en 2 días: quedaron {job.Insertadas ?? 0:N0} de {job.Faltantes ?? 0:N0}. Para el resto vuelve a subir el reporte.", ct);
+                RecoveryService.TryDelete(FindFile(job.JobId));
+                logger.LogInformation("Recuperación {JobId} detenida hace más de 2 días: se limpió lo temporal", job.JobId);
             }
         }
         catch (Exception ex)
