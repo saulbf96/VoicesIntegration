@@ -5,7 +5,27 @@
       "commandName": "Project",
       "dotnetRunMessages": true,
       "launchBrowser": false,
+      "applicationUrl": "http://localhost:5034;http://localhost:8093",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      }
+    },
+    "http-pedir-key": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "launchBrowser": false,
       "applicationUrl": "http://localhost:5034",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "Security__SimularFueraDeRed": "true",
+        "Correo__Habilitado": "false"
+      }
+    },
+    "tunel": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "launchBrowser": false,
+      "applicationUrl": "http://localhost:8093",
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development"
       }
