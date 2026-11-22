@@ -73,16 +73,21 @@ public sealed class SpLoteV2EquivalenciaTests(ITestOutputHelper output)
                        [audio], ORIGEN, FECHA_REGISTRO, FECHA_ULTIMO_EVENTO, FECHA_LLAMADA
                   FROM dbo.TBL_LLAMADAS_VOICES WHERE [identifier] LIKE '{P}%'
                 """);
-            var eventos = await Diferencias(cs, """
-                SELECT REPLACE([identifier], '{P}', '') AS ID, TIPO_LLAMADA, [status], [sip_code], [sip_description],
-                       [duration_minutes], [duration_seconds], FECHA_RECEPCION
-                  FROM dbo.TBL_EVENTOS_LLAMADAS_VOICES WHERE [identifier] LIKE '{P}%'
-                """);
+            // El SP viejo anota cada aviso en TBL_EVENTOS_LLAMADAS_VOICES; el V2 (script 45) solo su huella
+            // en TBL_HUELLAS_LLAMADAS_VOICES. Deben quedar los mismos avisos (identifier + hora; el hash cambia porque el JSON lleva EQA/EQB).
+            var huellas = await DiferenciasHuellas(cs);
 
-            output.WriteLine($"Llamadas: {llamadas.Filas} por cada SP, diferencias {llamadas.Distintas}. Eventos: {eventos.Filas}, diferencias {eventos.Distintas}.");
+            output.WriteLine($"Llamadas: {llamadas.Filas} por cada SP, diferencias {llamadas.Distintas}. Avisos: {huellas.Filas}, diferencias {huellas.Distintas}.");
             Assert.True(llamadas.Filas >= 8, "deben existir las 8 llamadas de prueba");
             Assert.Equal(0, llamadas.Distintas);
-            Assert.Equal(0, eventos.Distintas);
+            Assert.True(huellas.Filas >= 12, "deben existir las huellas de los avisos de prueba");
+            Assert.Equal(0, huellas.Distintas);
+
+            // Paso 1 de /recuperar (SP 12): los avisos por minuto que anota el V2 deben ser los mismos que contaba eventos.
+            var porMinuto = await DiferenciasAvisosPorMinuto(cs);
+            output.WriteLine($"Avisos por minuto: {porMinuto.Filas} minutos, diferencias {porMinuto.Distintas}.");
+            Assert.True(porMinuto.Filas >= 2, "deben existir avisos en al menos 2 minutos");
+            Assert.Equal(0, porMinuto.Distintas);
         }
         finally
         {
@@ -143,13 +148,53 @@ public sealed class SpLoteV2EquivalenciaTests(ITestOutputHelper output)
         return (rd.GetInt32(0), rd.GetInt32(1));
     }
 
+    private static async Task<(int Filas, int Distintas)> DiferenciasHuellas(string cs)
+    {
+        const string a = "SELECT REPLACE([identifier], 'EQA-', '') AS ID, FECHA_RECEPCION FROM dbo.TBL_EVENTOS_LLAMADAS_VOICES WHERE [identifier] LIKE 'EQA-%'";
+        const string b = "SELECT REPLACE([identifier], 'EQB-', '') AS ID, FECHA_RECEPCION FROM dbo.TBL_HUELLAS_LLAMADAS_VOICES WHERE [identifier] LIKE 'EQB-%'";
+        var sql = $"""
+            SELECT (SELECT COUNT(*) FROM ({b}) y),
+                   (SELECT COUNT(*) FROM (SELECT * FROM ({a}) x EXCEPT SELECT * FROM ({b}) y) d1)
+                 + (SELECT COUNT(*) FROM (SELECT * FROM ({b}) y EXCEPT SELECT * FROM ({a}) x) d2)
+            """;
+        await using var c = new SqlConnection(cs);
+        await c.OpenAsync();
+        await using var cmd = new SqlCommand(sql, c);
+        await using var rd = await cmd.ExecuteReaderAsync();
+        await rd.ReadAsync();
+        return (rd.GetInt32(0), rd.GetInt32(1));
+    }
+
+    // Los avisos de prueba caen el 08/11/2026 entre 10:00 y 10:02 (hora Mexico).
+    private const string RangoPrueba = "MINUTO >= '2026-11-08T09:59:00' AND MINUTO < '2026-11-08T10:03:00'";
+
+    private static async Task<(int Filas, int Distintas)> DiferenciasAvisosPorMinuto(string cs)
+    {
+        const string a = "SELECT DATEADD(MINUTE, DATEDIFF(MINUTE, 0, FECHA_RECEPCION), CAST(0 AS DATETIME)) AS M, COUNT(*) AS N FROM dbo.TBL_EVENTOS_LLAMADAS_VOICES WHERE [identifier] LIKE 'EQA-%' GROUP BY DATEADD(MINUTE, DATEDIFF(MINUTE, 0, FECHA_RECEPCION), CAST(0 AS DATETIME))";
+        const string b = $"SELECT CAST(MINUTO AS DATETIME) AS M, SUM(AVISOS) AS N FROM dbo.TBL_AVISOS_POR_MINUTO_VOICES WHERE CANAL = 'L' AND {RangoPrueba} GROUP BY MINUTO";
+        var sql = $"""
+            SELECT (SELECT COUNT(*) FROM ({b}) y),
+                   (SELECT COUNT(*) FROM (SELECT * FROM ({a}) x EXCEPT SELECT * FROM ({b}) y) d1)
+                 + (SELECT COUNT(*) FROM (SELECT * FROM ({b}) y EXCEPT SELECT * FROM ({a}) x) d2)
+            """;
+        await using var c = new SqlConnection(cs);
+        await c.OpenAsync();
+        await using var cmd = new SqlCommand(sql, c);
+        await using var rd = await cmd.ExecuteReaderAsync();
+        await rd.ReadAsync();
+        return (rd.GetInt32(0), rd.GetInt32(1));
+    }
+
     private static async Task Limpiar(string cs)
     {
         await using var c = new SqlConnection(cs);
         await c.OpenAsync();
-        await using var cmd = new SqlCommand("""
+        await using var cmd = new SqlCommand($"""
             DELETE FROM dbo.TBL_EVENTOS_LLAMADAS_VOICES WHERE [identifier] LIKE 'EQA-%' OR [identifier] LIKE 'EQB-%';
+            DELETE FROM dbo.TBL_HUELLAS_LLAMADAS_VOICES WHERE [identifier] LIKE 'EQA-%' OR [identifier] LIKE 'EQB-%';
             DELETE FROM dbo.TBL_LLAMADAS_VOICES WHERE [identifier] LIKE 'EQA-%' OR [identifier] LIKE 'EQB-%';
+            IF OBJECT_ID(N'dbo.TBL_AVISOS_POR_MINUTO_VOICES', N'U') IS NOT NULL
+                DELETE FROM dbo.TBL_AVISOS_POR_MINUTO_VOICES WHERE {RangoPrueba};
             """, c);
         await cmd.ExecuteNonQueryAsync();
     }

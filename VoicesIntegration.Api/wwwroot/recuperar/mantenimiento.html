@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>try{var t=localStorage.getItem("unoTheme")||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");document.documentElement.dataset.theme=t}catch(e){document.documentElement.dataset.theme="light"}</script>
+<title>En mantenimiento · Recuperar</title>
+<link rel="icon" type="image/png" href="/recuperar/uno-icono.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Roboto+Condensed:wght@600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --navy:#003087; --header-bg:#003087; --heading:#012169;
+  --bg:#F5F3EF; --surface:#FFFFFF; --border:#DDD8CF;
+  --text:#2B2A28; --muted:#6B645A;
+  --warn:#7A4F00; --warn-bg:#FFF1CC; --warn-dot:#E0A21B;
+  --on-color:#FFFFFF; --shadow:0 12px 32px rgba(10,14,30,.12);
+  --font:Roboto,Arial,sans-serif; --font-head:'Roboto Condensed',Roboto,sans-serif;
+  color-scheme:light;
+}
+[data-theme="dark"]{
+  --navy:#3B63C8; --header-bg:#0F1A3A; --heading:#D5DEF3;
+  --bg:#15161A; --surface:#1E2027; --border:#33363F;
+  --text:#ECEAE6; --muted:#A39D94;
+  --warn:#F5C25B; --warn-bg:#3A2E12;
+  --shadow:0 12px 32px rgba(0,0,0,.45);
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);font-size:15px;display:flex;flex-direction:column}
+header{background:var(--header-bg);padding:14px 16px;display:flex;align-items:center}
+header img{height:34px;display:block}
+main{flex:1;display:flex;align-items:center;justify-content:center;padding:32px 16px}
+.card{width:100%;max-width:560px;background:var(--surface);border:1px solid var(--border);border-top:4px solid var(--warn-dot);border-radius:8px;box-shadow:var(--shadow);padding:36px 28px;text-align:center}
+.ico{width:64px;height:64px;margin:0 auto 18px;border-radius:50%;background:var(--warn-bg);color:var(--warn);display:flex;align-items:center;justify-content:center}
+h1{font-family:var(--font-head);font-weight:700;color:var(--heading);font-size:28px;margin:0 0 12px}
+.mensaje{font-size:16px;line-height:1.55;margin:0 0 18px;overflow-wrap:anywhere}
+.nota{color:var(--muted);font-size:14px;line-height:1.5;margin:0}
+.estado{margin-top:22px;display:inline-flex;align-items:center;gap:8px;color:var(--muted);font-size:13px}
+.punto{width:8px;height:8px;border-radius:50%;background:var(--warn-dot);animation:lat 1.6s ease-in-out infinite}
+@keyframes lat{50%{opacity:.25}}
+@media (prefers-reduced-motion:reduce){.punto{animation:none}}
+footer{color:var(--muted);font-size:12px;text-align:center;padding:16px}
+</style>
+</head>
+<body>
+<header><img src="/recuperar/uno-logo-white.png" alt="UNO Contact Solutions Bureau"></header>
+<main>
+  <section class="card" role="status" aria-live="polite">
+    <div class="ico" aria-hidden="true">
+      <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18v3h3l6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4z"/></svg>
+    </div>
+    <h1>Estamos en mantenimiento</h1>
+    <p class="mensaje" id="mensaje">{{MENSAJE}}</p>
+    <p class="nota">Por ahora no se pueden subir reportes ni recuperar registros. Las llamadas y mensajes que manda Voices se siguen guardando normal.</p>
+    <div class="estado"><span class="punto"></span><span id="estado">Esta página se actualizará sola cuando termine.</span></div>
+  </section>
+</main>
+<footer>UNO Contact Solutions Bureau · <span id="anio"></span></footer>
+<script>
+document.getElementById('anio').textContent = new Date().getFullYear();
+// Revisa cada 20 s; cuando se apaga el mantenimiento regresa a la pantalla normal
+async function revisar(){
+  try{
+    const h = {}; try{ const k = sessionStorage.getItem('apiKey'); if (k) h['X-Api-Key'] = k; }catch(e){}
+    const r = await fetch('/api/recuperacion/mantenimiento', { headers: h, cache: 'no-store' });
+    if (!r.ok) return;
+    const j = await r.json();
+    if (!j.activo) { location.replace('/recuperar/'); return; }
+    if (j.mensaje) document.getElementById('mensaje').textContent = j.mensaje;
+  }catch(e){}
+}
+setInterval(revisar, 20000);
+</script>
+</body>
+</html>

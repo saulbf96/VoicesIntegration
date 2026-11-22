@@ -1,4 +1,4 @@
-namespace VoicesIntegration.Application.Abstractions.Recovery;
+﻿namespace VoicesIntegration.Application.Abstractions.Recovery;
 
 public static class RecoveryStates
 {
@@ -10,6 +10,8 @@ public static class RecoveryStates
     public const string Terminado = "TERMINADO";
     public const string Error = "ERROR";
     public const string Cancelado = "CANCELADO";
+    // Se detuvo la inserción: conserva archivo y comparación para seguir con "Insertar faltantes"
+    public const string Detenido = "DETENIDO";
 }
 
 public static class RecoveryChannels
@@ -75,10 +77,18 @@ public sealed record RecoveryJob
     public DateTime FechaSubida { get; init; }
     public DateTime FechaActualizacion { get; init; }
     public string Canal { get; init; } = RecoveryChannels.Blaster;
+    // Filas del archivo omitidas por ser de hoy (o de un dia que la bandeja no termina)
+    public int? Omitidas { get; init; }
+    // Desde esta hora (Mexico) se omitio
+    public DateTime? Corte { get; init; }
 }
+
+public sealed record RecoveryPage(int Total, IReadOnlyList<RecoveryJob> Items);
 
 public interface IRecoveryRepository
 {
+    Task<RecoveryPage> HistoryAsync(DateOnly? dia, string? canal, string? q, string? estado, int page, int size, CancellationToken ct);
+
     Task CreateAsync(Guid jobId, string fileName, long sizeBytes, string? user, string canal, CancellationToken ct);
 
     Task<int> BulkLoadSmsAsync(Guid jobId, IAsyncEnumerable<SmsRecoveryRow> rows, Func<int, Task> onProgress, CancellationToken ct);
@@ -103,6 +113,14 @@ public interface IRecoveryRepository
     Task CompareAsync(Guid jobId, CancellationToken ct);
     Task InsertMissingAsync(Guid jobId, CancellationToken ct);
     Task CancelAsync(Guid jobId, CancellationToken ct);
+
+    Task SaveOmittedAsync(Guid jobId, int omitidas, DateTime corte, CancellationToken ct);
+
+    // Insertadas = faltaban - las que todavia no estan (corrige bloques que no se alcanzaron a sumar)
+    Task RecountInsertedAsync(Guid jobId, CancellationToken ct);
+
+    // Error de conexion o tiempo de espera del servidor de base de datos: se puede reintentar
+    bool IsTransient(Exception ex);
 }
 
 public interface IRecoveryFileReader

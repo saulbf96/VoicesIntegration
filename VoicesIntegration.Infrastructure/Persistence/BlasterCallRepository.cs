@@ -1,4 +1,5 @@
 using System.Data;
+using System.Text.Json;
 using Dapper;
 using Microsoft.Data.SqlClient;
 using VoicesIntegration.Application.Abstractions.Persistence;
@@ -31,6 +32,7 @@ internal sealed class BlasterCallRepository(ISqlConnectionFactory connectionFact
         parameters.Add("@DurationSeconds", result.DurationSeconds, DbType.Int32);
         parameters.Add("@PayloadHash", payloadHash, DbType.Binary, size: 32);
         parameters.Add("@RawPayload", rawPayload, DbType.String, size: -1);
+        parameters.Add("@Data", DataAGuardar(rawPayload), DbType.String, size: -1);
         parameters.Add("@ReceivedAtUtc", result.ReceivedAtUtc.UtcDateTime, DbType.DateTime2);
         parameters.Add("@IsDuplicate", dbType: DbType.Boolean, direction: ParameterDirection.Output);
 
@@ -93,10 +95,21 @@ internal sealed class BlasterCallRepository(ISqlConnectionFactory connectionFact
             var root = doc.RootElement;
             foreach (var c in CamposJson)
                 fila["J_" + c.ToUpperInvariant()] = (object?)CamposJsonSql.Valor(root, c) ?? DBNull.Value;
-            fila["J_DATA"] = (object?)CamposJsonSql.Fragmento(root, "data") ?? DBNull.Value;
+            fila["J_DATA"] = (object?)DataAGuardar(root) ?? DBNull.Value;
             t.Rows.Add(fila);
         }
         return t;
+    }
+
+    internal static string? DataAGuardar(JsonElement root) =>
+        root.ValueKind == JsonValueKind.Object && root.TryGetProperty("data", out var d) && DatoCliente.Reducir(d) is { } id
+            ? id
+            : CamposJsonSql.Fragmento(root, "data");
+
+    private static string? DataAGuardar(string rawPayload)
+    {
+        try { using var doc = JsonDocument.Parse(rawPayload); return DataAGuardar(doc.RootElement); }
+        catch (JsonException) { return null; }
     }
 
     private static readonly HashSet<int> DataErrors =

@@ -74,6 +74,7 @@ public static class DependencyInjection
         services.AddScoped<IRecoveryRepository, RecoveryRepository>();
         services.AddSingleton<IRecoveryFileReader, CsvRecoveryFileReader>();
         services.AddSingleton<RecoveryQueue>();
+        services.AddSingleton<RecoveryCancellations>();
         services.AddHostedService<RecoveryWorker>();
 
         services.AddScoped<IMonitoringRepository, MonitoringRepository>();

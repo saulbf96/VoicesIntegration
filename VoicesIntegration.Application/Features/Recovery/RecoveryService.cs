@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Threading.Channels;
 using Microsoft.Extensions.Logging;
 using VoicesIntegration.Application.Abstractions.Inbox;
@@ -32,18 +32,31 @@ public sealed class RecoveryService(IRecoveryRepository repository, IRecoveryFil
     public async Task ReviewAsync(Guid jobId, string path, CancellationToken ct)
     {
         var sw = Stopwatch.StartNew();
+        var ahora = DateTimeOffset.UtcNow;
+        var filtro = new RecoveryDateFilter(RecoveryDateFilter.CalcularCorte(ahora, inbox.GetStatus()));
         try
         {
             await repository.UpdateAsync(jobId, RecoveryStates.Leyendo, 0, "Leyendo el archivo...", ct);
             var esSms = (await repository.GetAsync(jobId, ct))?.Canal == RecoveryChannels.Sms;
 
+            // Lo de hoy (o de un dia que la bandeja no termina) no se carga: el webhook lo sigue guardando
             var total = esSms
-                ? await repository.BulkLoadSmsAsync(jobId, reader.ReadSmsAsync(path, ct), read => repository.UpdateAsync(jobId, null, read, null, ct), ct)
-                : await repository.BulkLoadLightAsync(jobId, reader.ReadAsync(path, light: true, include: null, ct),
+                ? await repository.BulkLoadSmsAsync(jobId, filtro.Filtrar(reader.ReadSmsAsync(path, ct), RecoveryDateFilter.FechaSms, ct),
+                    read => repository.UpdateAsync(jobId, null, read, null, ct), ct)
+                : await repository.BulkLoadLightAsync(jobId, filtro.Filtrar(reader.ReadAsync(path, light: true, include: null, ct), RecoveryDateFilter.FechaLlamada, ct),
                     read => repository.UpdateAsync(jobId, null, read, null, ct), ct);
 
+            await repository.SaveOmittedAsync(jobId, filtro.Omitidas, filtro.Corte, ct);
+
+            if (total == 0 && filtro.Omitidas > 0)
+                throw new DomainException($"Todo el archivo es {filtro.MotivoCorte(ahora)} ({filtro.Omitidas:N0} filas): el webhook las sigue guardando. " +
+                                          "No hay nada que recuperar todavía; súbelo a partir de mañana.");
             if (total == 0)
                 throw new DomainException("El archivo no tiene registros.");
+
+            if (filtro.Omitidas > 0)
+                logger.LogInformation("Recuperación {JobId}: {Omitidas} filas omitidas, son {Motivo} (corte {Corte:dd/MM/yyyy HH:mm})",
+                    jobId, filtro.Omitidas, filtro.MotivoCorte(ahora), filtro.Corte);
 
             await repository.UpdateAsync(jobId, null, total, "Comparando contra la base de datos...", ct);
             if (esSms)
@@ -57,9 +70,9 @@ public sealed class RecoveryService(IRecoveryRepository repository, IRecoveryFil
             }
             logger.LogInformation("Recuperación {JobId}: {Total} filas leídas y comparadas en {Segundos:N0} s", jobId, total, sw.Elapsed.TotalSeconds);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException && !ct.IsCancellationRequested)
         {
-            var msg = ex is DomainException ? ex.Message : "Error al procesar el archivo: " + ex.Message;
+            var msg = filtro.Rechazo ?? (ex is DomainException ? ex.Message : "Error al procesar el archivo: " + ex.Message);
             logger.LogError(ex, "Recuperación {JobId} falló al revisar", jobId);
             await SafeAsync(() => repository.CancelAsync(jobId, CancellationToken.None));
             await SafeAsync(() => repository.UpdateAsync(jobId, RecoveryStates.Error, null, Truncate(msg), CancellationToken.None));
@@ -73,16 +86,17 @@ public sealed class RecoveryService(IRecoveryRepository repository, IRecoveryFil
         var sw = Stopwatch.StartNew();
         try
         {
-            var job = await repository.GetAsync(jobId, ct);
+            var job = await ReintentarAsync(jobId, "leer la carga", () => repository.GetAsync(jobId, ct), ct);
+            if (job?.Estado is RecoveryStates.Cancelado or RecoveryStates.Detenido) return;
             if (job is not null && RecoveryDayRule.WhyNot(job, inbox.GetStatus(), DateTimeOffset.UtcNow) is { } motivo)
                 throw new DomainException(motivo);
-            await repository.UpdateAsync(jobId, RecoveryStates.Insertando, null, "Buscando lo que falta...", ct);
+            await ReintentarAsync(jobId, "marcar insertando", () => repository.UpdateAsync(jobId, RecoveryStates.Insertando, null, "Buscando lo que falta...", ct), ct);
             var faltantes = job?.Faltantes ?? 0;
 
             if (job?.Canal == RecoveryChannels.Sms)
             {
-                await repository.InsertSmsAsync(jobId, ct);
-                job = await repository.GetAsync(jobId, ct);
+                await ReintentarAsync(jobId, "insertar SMS", () => repository.InsertSmsAsync(jobId, ct), ct);
+                job = await ReintentarAsync(jobId, "leer la carga", () => repository.GetAsync(jobId, ct), ct);
                 logger.LogInformation("Recuperación SMS {JobId}: {Insertados} insertados, {Completados} completados, en {Segundos:N0} s",
                     jobId, job?.Insertadas, job?.ANumActualizados, sw.Elapsed.TotalSeconds);
                 if (path is not null) TryDelete(path);
@@ -90,7 +104,7 @@ public sealed class RecoveryService(IRecoveryRepository repository, IRecoveryFil
                     $"Archivo: {job?.Archivo}\n" +
                     $"Leídos: {job?.FilasLeidas:N0} · Ya estaban: {job?.YaExistian:N0} · Insertados: {job?.Insertadas:N0} · " +
                     $"Completados (número/texto): {job?.ANumActualizados:N0} · Sin estado: {job?.FilasSinMarcar:N0}\n" +
-                    $"Fechas del archivo: {job?.Desde:dd/MM/yyyy HH:mm} a {job?.Hasta:dd/MM/yyyy HH:mm}");
+                    $"Fechas del archivo: {job?.Desde:dd/MM/yyyy HH:mm} a {job?.Hasta:dd/MM/yyyy HH:mm}" + Omitidas(job));
                 return;
             }
 
@@ -99,17 +113,21 @@ public sealed class RecoveryService(IRecoveryRepository repository, IRecoveryFil
                 if (path is null || !File.Exists(path))
                     throw new DomainException("Ya no está el archivo en el servidor (se borra a los 2 días). Vuelve a subirlo.");
 
-                IdentifierSet? only = faltantes <= MaxMissingInMemory ? await repository.GetMissingIdsAsync(jobId, ct) : null;
+                IdentifierSet? only = faltantes <= MaxMissingInMemory
+                    ? await ReintentarAsync(jobId, "buscar faltantes", () => repository.GetMissingIdsAsync(jobId, ct), ct)
+                    : null;
                 logger.LogInformation("Recuperación {JobId}: empieza a insertar (bandeja del webhook: {Pendientes} pendientes; el modo se decide bloque por bloque)",
                     jobId, inbox.GetStatus().Pending);
-                await repository.UpdateAsync(jobId, null, null, $"Insertando: 0 de {faltantes:N0}", ct);
-                await repository.InsertBatchAsync(jobId, -1, ct);
-                await LoadAndInsertAsync(jobId, path, only, ct);
+                await ReintentarAsync(jobId, "actualizar avance", () => repository.UpdateAsync(jobId, null, null, $"Insertando: 0 de {faltantes:N0}", ct), ct);
+                await ReintentarAsync(jobId, "preparar inserción", () => repository.InsertBatchAsync(jobId, -1, ct), ct);
+                await LoadAndInsertAsync(jobId, path, only, job?.Corte, ct);
+                // Si un corte del 205 impidio sumar algun bloque, el numero queda bien
+                await ReintentarAsync(jobId, "recontar insertadas", () => repository.RecountInsertedAsync(jobId, ct), ct);
             }
 
-            await repository.UpdateAsync(jobId, null, null, "Completando a_num y limpiando...", ct);
-            await repository.InsertMissingAsync(jobId, ct);
-            job = await repository.GetAsync(jobId, ct);
+            await ReintentarAsync(jobId, "actualizar avance", () => repository.UpdateAsync(jobId, null, null, "Completando a_num y limpiando...", ct), ct);
+            await ReintentarAsync(jobId, "completar a_num", () => repository.InsertMissingAsync(jobId, ct), ct);
+            job = await ReintentarAsync(jobId, "leer la carga", () => repository.GetAsync(jobId, ct), ct);
             logger.LogInformation("Recuperación {JobId}: {Insertadas} insertadas, a_num completado en {ANum}, en {Segundos:N0} s",
                 jobId, job?.Insertadas, job?.ANumActualizados, sw.Elapsed.TotalSeconds);
             if (path is not null) TryDelete(path);
@@ -117,9 +135,10 @@ public sealed class RecoveryService(IRecoveryRepository repository, IRecoveryFil
                 $"Archivo: {job?.Archivo}\n" +
                 $"Leídas: {job?.FilasLeidas:N0} · Ya estaban: {job?.YaExistian:N0} · " +
                 $"Insertadas: {job?.Insertadas:N0} · Sin marcar por Voices: {job?.FilasSinMarcar:N0}\n" +
-                $"Rango del archivo: {job?.Desde:dd/MM/yyyy HH:mm} a {job?.Hasta:HH:mm} · Tiempo de inserción: {(int)sw.Elapsed.TotalMinutes} min {sw.Elapsed.Seconds} s");
+                $"Rango del archivo: {job?.Desde:dd/MM/yyyy HH:mm} a {job?.Hasta:dd/MM/yyyy HH:mm} · Tiempo de inserción: {(int)sw.Elapsed.TotalMinutes} min {sw.Elapsed.Seconds} s" +
+                Omitidas(job));
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException && !ct.IsCancellationRequested)
         {
             logger.LogError(ex, "Recuperación {JobId} falló al insertar", jobId);
             var msg = ex is DomainException ? ex.Message : "Error al insertar (se puede reintentar): " + ex.Message;
@@ -128,6 +147,33 @@ public sealed class RecoveryService(IRecoveryRepository repository, IRecoveryFil
         }
     }
 
+    // El 205 se pausa 2 a 4 minutos en horas pico: se reintenta hasta ~6 minutos antes de marcar ERROR
+    public static readonly TimeSpan[] EsperasReintento =
+        [TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(20), TimeSpan.FromSeconds(40), TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(90), TimeSpan.FromSeconds(120)];
+
+    // Las pruebas lo acortan
+    public TimeSpan[] Esperas { get; init; } = EsperasReintento;
+
+    private async Task<T> ReintentarAsync<T>(Guid jobId, string que, Func<Task<T>> op, CancellationToken ct)
+    {
+        for (var intento = 0; ; intento++)
+        {
+            try { return await op(); }
+            catch (Exception ex) when (intento < Esperas.Length && !ct.IsCancellationRequested && repository.IsTransient(ex))
+            {
+                logger.LogWarning("Recuperación {JobId}: el servidor de base de datos no respondió al {Que} ({Error}). Reintento {N} de {Max} en {Segundos} s",
+                    jobId, que, ex.Message, intento + 1, Esperas.Length, (int)Esperas[intento].TotalSeconds);
+                await Task.Delay(Esperas[intento], ct);
+            }
+        }
+    }
+
+    private Task ReintentarAsync(Guid jobId, string que, Func<Task> op, CancellationToken ct) =>
+        ReintentarAsync(jobId, que, async () => { await op(); return true; }, ct);
+
+    private static string Omitidas(RecoveryJob? job) =>
+        job?.Omitidas is > 0 ? $"\nOmitidas por ser de hoy (las guarda el webhook): {job.Omitidas:N0} · desde {job.Corte:dd/MM/yyyy HH:mm}" : string.Empty;
+
     private async Task AvisarAsync(Guid jobId, string asunto, string cuerpo)
     {
         try { await notificador.EnviarAsync(asunto, cuerpo + $"\n\nRecuperación: {jobId}", CancellationToken.None); }
@@ -135,7 +181,7 @@ public sealed class RecoveryService(IRecoveryRepository repository, IRecoveryFil
     }
 
     // Lector -> cargadores en paralelo -> insertador
-    private async Task LoadAndInsertAsync(Guid jobId, string path, IdentifierSet? only, CancellationToken ct)
+    private async Task LoadAndInsertAsync(Guid jobId, string path, IdentifierSet? only, DateTime? corte, CancellationToken ct)
     {
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var token = cts.Token;
@@ -166,6 +212,8 @@ public sealed class RecoveryService(IRecoveryRepository repository, IRecoveryFil
                 await foreach (var row in reader.ReadAsync(path, light: false, include, token))
                 {
                     if (row.SipCode is null && row.DialedAt is null && row.FailedAt is null) continue;
+                    // Mismo corte que al revisar: lo de hoy no se inserta (el webhook lo guarda)
+                    if (corte is { } c && RecoveryDateFilter.FechaLlamada(row) >= c) continue;
                     if (!seenInBatch.Add(row.Identifier)) continue;
                     batch.Add(row);
                     if (batch.Count < tam) continue;
@@ -197,14 +245,16 @@ public sealed class RecoveryService(IRecoveryRepository repository, IRecoveryFil
                 if (only is not null)
                 {
                     await EsperarSiElWebhookVaAtrasadoAsync(jobId, token);
-                    if (await repository.BulkInsertFinalAsync(jobId, rows, token))
+                    // Si el bloque si se guardo pero se perdio la respuesta, el reintento choca con llave repetida
+                    // y se va por el camino seguro (SP 20): no se duplica nada.
+                    if (await ReintentarAsync(jobId, $"insertar bloque {lote}", () => repository.BulkInsertFinalAsync(jobId, rows, token), token))
                     {
-                        await repository.AddInsertedAsync(jobId, rows.Count, token);
+                        await ReintentarAsync(jobId, "sumar insertadas", () => repository.AddInsertedAsync(jobId, rows.Count, token), token);
                         if (inbox.GetStatus().Pending >= RapidoSiBandejaMenorA) await Task.Delay(PausaEntreLotes, token);
                         continue;
                     }
                 }
-                await repository.BulkLoadBatchAsync(jobId, lote, rows, token);
+                await ReintentarAsync(jobId, $"cargar bloque {lote}", () => repository.BulkLoadBatchAsync(jobId, lote, rows, token), token);
                 await porInsertar.Writer.WriteAsync(lote, token);
             }
         }), token)).ToArray();
@@ -219,7 +269,7 @@ public sealed class RecoveryService(IRecoveryRepository repository, IRecoveryFil
             await foreach (var lote in porInsertar.Reader.ReadAllAsync(token))
             {
                 await EsperarSiElWebhookVaAtrasadoAsync(jobId, token);
-                await repository.InsertBatchAsync(jobId, lote, token);
+                await ReintentarAsync(jobId, $"insertar bloque {lote}", () => repository.InsertBatchAsync(jobId, lote, token), token);
                 if (inbox.GetStatus().Pending >= RapidoSiBandejaMenorA) await Task.Delay(PausaEntreLotes, token);
             }
         }), token);
@@ -248,6 +298,10 @@ public sealed class RecoveryService(IRecoveryRepository repository, IRecoveryFil
             jobId, pendientes, (int)PausaAlCompartir.TotalSeconds);
         await Task.Delay(PausaAlCompartir, ct);
     }
+
+    public static string MensajeDetenido(RecoveryJob? job) =>
+        $"Detenida: se insertaron {job?.Insertadas ?? 0:N0} de {job?.Faltantes ?? 0:N0}. " +
+        "Para seguir da \"Insertar faltantes\" (no se duplica nada; el archivo se guarda 2 días).";
 
     private static string Truncate(string s) => s.Length <= 1000 ? s : s[..1000];
 

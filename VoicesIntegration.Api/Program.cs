@@ -98,6 +98,28 @@ app.Use(async (context, next) =>
     await next();
 });
 
+// Mantenimiento de /recuperar: en vez de la pantalla sale SOLO la pagina de mantenimiento (las imagenes si se sirven)
+app.Use(async (context, next) =>
+{
+    var path = context.Request.Path;
+    if ((path.Equals("/recuperar/", StringComparison.OrdinalIgnoreCase) || path.Equals("/recuperar/index.html", StringComparison.OrdinalIgnoreCase))
+        && VoicesIntegration.Api.Endpoints.RecoveryMaintenance.Motivo(app.Environment) is { } motivo)
+    {
+        var pagina = app.Environment.WebRootFileProvider.GetFileInfo("recuperar/mantenimiento.html");
+        string html;
+        await using (var s = pagina.CreateReadStream())
+        using (var sr = new StreamReader(s))
+            html = await sr.ReadToEndAsync();
+        context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+        context.Response.Headers.RetryAfter = "60";
+        context.Response.Headers.CacheControl = "no-store";
+        context.Response.ContentType = "text/html; charset=utf-8";
+        await context.Response.WriteAsync(html.Replace("{{MENSAJE}}", System.Net.WebUtility.HtmlEncode(motivo)));
+        return;
+    }
+    await next();
+});
+
 app.UseDefaultFiles();
 app.UseStaticFiles();
 

@@ -13,4 +13,7 @@ public sealed class SecurityOptions
     public string WebhookSecret { get; init; } = string.Empty;
 
     public string[] InternalNetworks { get; init; } = ["127.0.0.0/8", "::1/128", "10.80.0.0/16"];
+
+    // Solo para probar en local que se pida la API Key (perfil "http-pedir-key")
+    public bool SimularFueraDeRed { get; init; }
 }

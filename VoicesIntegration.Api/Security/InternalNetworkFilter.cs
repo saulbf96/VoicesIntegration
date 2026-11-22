@@ -13,7 +13,7 @@ internal sealed class InternalNetworkFilter(SecretHeaderFilter apiKeyFilter) : I
         var http = context.HttpContext;
         var options = http.RequestServices.GetRequiredService<IOptions<SecurityOptions>>().Value;
 
-        if (IsInternal(http, options.InternalNetworks))
+        if (!options.SimularFueraDeRed && IsInternal(http, options.InternalNetworks))
             return await next(context);
 
         return await apiKeyFilter.InvokeAsync(context, next);
